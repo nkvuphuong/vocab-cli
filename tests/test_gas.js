@@ -219,5 +219,15 @@ check('delete is rejected for a wrong token', () => {
   eq(data.length, 2, 'nothing deleted');
 });
 
+check('list returns newest first by date, not by weekday name', () => {
+  // Wed Nov 18 vs Thu Nov 19 2026: sorting the Date strings alphabetically puts
+  // "Wed" first, which is the older row. Only real date math gets this right.
+  const { api, data } = makeApi(HEAD, 'tok');
+  post(api, { token: 'tok', op: 'append_many', items: [row('older', 'cũ'), row('newer', 'mới')] });
+  data[1][18] = new Date('2026-11-18T10:00:00Z');
+  data[2][18] = new Date('2026-11-19T10:00:00Z');
+  eq(post(api, { token: 'tok', op: 'list' }).rows.map((r) => r.term), ['newer', 'older']);
+});
+
 console.log(failures ? '\n' + failures + ' FAILED' : '\nall passed');
 process.exit(failures ? 1 : 0);

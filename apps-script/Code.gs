@@ -275,7 +275,9 @@ function listRows(body) {
       if (domain && String(x.row.domain).toLowerCase().indexOf(domain) < 0) return false;
       return true;
     })
-    .sort(function (a, b) { return String(b.row.last_seen_at).localeCompare(String(a.row.last_seen_at)); })
+    .sort(function (a, b) {
+      return (new Date(b.row.last_seen_at) - new Date(a.row.last_seen_at)) || 0;
+    })
     .slice(0, limit)
     .map(function (x) { return pick(x.row); });
 
