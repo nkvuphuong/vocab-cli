@@ -28,12 +28,13 @@ function eq(actual, expected, label) {
   if (a !== e) throw new Error((label || 'value') + ': got ' + a + ', expected ' + e);
 }
 
-function makeApi(initialRows, token) {
+function makeApi(initialRows, token, extraSheets) {
   const data = initialRows ? initialRows.map((r) => r.slice()) : [];
   let uuid = 0;
   const cache = {};
 
   const sheet = {
+    getName: () => 'terms',
     getDataRange: () => ({ getValues: () => data.map((r) => r.slice()) }),
     getLastRow: () => data.length,
     getLastColumn: () => (data.length ? Math.max.apply(null, data.map((r) => r.length)) : 0),
@@ -65,8 +66,17 @@ function makeApi(initialRows, token) {
     }),
   };
 
+  const extras = {};
+  Object.keys(extraSheets || {}).forEach((name) => {
+    const values = extraSheets[name];
+    extras[name] = {
+      getName: () => name,
+      getDataRange: () => ({ getValues: () => values.map((r) => r.slice()) }),
+    };
+  });
+
   const context = {
-    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: () => sheet, insertSheet: () => sheet }) },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: (name) => (name === undefined || name === 'terms' ? sheet : extras[name] || null), insertSheet: () => sheet }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => token }) },
     CacheService: {
       getScriptCache: () => ({
@@ -246,6 +256,20 @@ check('update can backfill meaning_short', () => {
   const res = post(api, { token: 'tok', op: 'update', key: 'drift', patch: { meaning_short: 'lệch' } });
   eq(res.row.meaning_short, 'lệch', 'patch returned');
   eq(data[1][8], 'lệch', 'written to column I');
+});
+
+check('read returns the raw cells of a named tab (grading input)', () => {
+  const { api } = makeApi(HEAD, 'tok', { Shuffle: [['drift', 'lệch chất lượng'], ['rubric', '']] });
+  const res = post(api, { token: 'tok', op: 'read', sheet: 'Shuffle' });
+  eq(res.ok, true, 'ok');
+  eq(res.sheet, 'Shuffle', 'sheet name');
+  eq(res.rows, [['drift', 'lệch chất lượng'], ['rubric', '']], 'cells');
+});
+
+check('read defaults to terms and rejects an unknown tab', () => {
+  const { api } = makeApi(HEAD, 'tok');
+  eq(post(api, { token: 'tok', op: 'read' }).rows[0][0], 'id', 'header row of terms');
+  eq(post(api, { token: 'tok', op: 'read', sheet: 'Nope' }).error, 'sheet_not_found');
 });
 
 console.log(failures ? '\n' + failures + ' FAILED' : '\nall passed');

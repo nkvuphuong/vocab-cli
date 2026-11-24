@@ -459,5 +459,30 @@ class T9Update(unittest.TestCase):
         self.assertIn("sẽ sửa", out)
 
 
+class T10Sheet(unittest.TestCase):
+    """`vocab sheet` reads the review tab so answers can be graded."""
+
+    def fake(self):
+        return FakeApi(read={"ok": True, "op": "read", "sheet": "Shuffle",
+                             "rows": [["drift", "lệch chất lượng"], ["rubric", ""]]})
+
+    def test_defaults_to_shuffle_and_prints_answers(self):
+        fake = self.fake()
+        code, out, _ = run(["sheet"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0], {"op": "read", "sheet": "Shuffle"})
+        self.assertIn("drift", out)
+        self.assertIn("lệch chất lượng", out)
+        self.assertIn("2 dòng · 1 có đáp án", out)
+
+    def test_json_shape(self):
+        code, out, _ = run(["sheet", "--name", "Recheck", "--json"], self.fake())
+        self.assertEqual(code, cli.EXIT_OK)
+        payload = json.loads(out)
+        self.assertEqual(payload["sheet"], "Shuffle")  # whatever the endpoint reports
+        self.assertEqual(payload["rows"][0], {"term": "drift", "answer": "lệch chất lượng"})
+        self.assertEqual(payload["rows"][1], {"term": "rubric", "answer": ""})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

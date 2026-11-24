@@ -4,7 +4,7 @@ Lưu từ/cụm từ tiếng Anh gặp khi đọc docs vào một Google Sheet *
 IPA, nghĩa theo ngữ cảnh và câu ví dụ. Không UI, không dependency, không API key LLM —
 phần "hiểu nghĩa" do agent trong phiên chat làm.
 
-- Sheet là nơi bạn **xem lại** (điện thoại/web), có tab `Review` + `Shuffle`.
+- Sheet là nơi bạn **xem lại** (điện thoại/web), có tab `Review` + `Shuffle` + `Recheck`.
 - `bin/vocab` chỉ là HTTP client ~200 dòng, stdlib, không giữ secret trong repo.
   (`certifi` là dependency **tuỳ chọn**, chỉ cần khi OpenSSL của Python không có CA path.)
 
@@ -17,7 +17,7 @@ giá trị học, còn dán cả đoạn vào chat để hỏi nghĩa thì lần
 | Nỗi đau | Cách repo này xử lý |
 |---|---|
 | Nhập liệu thủ công (nghĩa, IPA, ví dụ) | Agent trong phiên chat tự trích từ và soạn hết; nó đã đọc nguồn nên nghĩa đúng ngữ cảnh |
-| Ghi chú rải rác, không ôn lại được | Một Google Sheet private là nơi lưu duy nhất; tab `Review`/`Shuffle`/`Words`/`Phrases` để ôn trên điện thoại |
+| Ghi chú rải rác, không ôn lại được | Một Google Sheet private là nơi lưu duy nhất; tab `Review`/`Shuffle`/`Words`/`Phrases`/`Recheck` để ôn trên điện thoại |
 | Hạ tầng nặng cho một việc nhỏ | CLI Python stdlib + Apps Script: không DB, không OAuth, không API key LLM, không server |
 
 Ý tưởng đến từ việc dùng chính các khóa học của Anthropic — nội dung dày thuật ngữ nhưng
@@ -32,8 +32,10 @@ flowchart TD
     agent --> cli["vocab import<br/>dedupe theo key, chia lô 50"]
     cli -->|"HTTPS + token"| gas["Apps Script<br/>token · allowlist op · lock"]
     gas -->|"ghi · sửa · xoá"| sheet[("Google Sheet private")]
-    sheet --> tabs["Tab Review · Shuffle ·<br/>Words · Phrases"]
+    sheet --> tabs["Tab Review · Shuffle · Recheck ·<br/>Words · Phrases"]
     tabs --> you(["Ôn trên điện thoại"])
+    you -->|"gõ đáp án vào cột B"| grade["Agent chấm bài<br/>theo nghĩa, không so chuỗi"]
+    grade -->|"vocab mark<br/>known / learning"| gas
 ```
 
 Gặp lại từ cũ thì không tạo dòng mới: chỉ `lookup_count + 1`, nên Sheet tự cho biết từ nào
@@ -116,6 +118,8 @@ vocab list --status new --domain evals --limit 10
 vocab list --json
 vocab keys --plain
 vocab mark drift --status learning
+vocab sheet --name Shuffle
+vocab sheet --name Recheck --json
 vocab update --file glosses.json --dry-run
 vocab delete "block a merge" "narrow the gap"
 vocab delete "block a merge" --dry-run
@@ -129,6 +133,8 @@ vocab delete "block a merge" --dry-run
 - `keys` — danh sách key đã lưu, để pre-filter rẻ.
 - `list --json` — dạng máy đọc.
 - `mark` — đổi trạng thái ôn tập: `new` → `learning` → `known`.
+- `sheet` — đọc tab ôn tập (`Shuffle`/`Recheck`), in `term` + đáp án bạn gõ ở cột B; `--json`
+  cho máy. Chỉ đọc, không ghi gì.
 - `delete` — xoá hẳn dòng (không hoàn tác được): `vocab delete "block a merge"`,
   hoặc `--dry-run` để xem trước. Key không thấy → exit 2, không xoá gì.
 - `update` — sửa field của dòng đã có, theo `key`: `vocab update --file rows.json`
@@ -174,7 +180,7 @@ last_seen_at created_at updated_at` → A…V.
 
 ## Xem lại trên điện thoại (M4)
 
-Trong Sheet tạo 4 tab, dán công thức vào ô A1:
+Trong Sheet tạo 5 tab, dán công thức vào ô A1:
 
 **Tab `Review`** — từ chưa thuộc, mới gặp gần đây trước:
 ```
@@ -189,6 +195,14 @@ Trong Sheet tạo 4 tab, dán công thức vào ô A1:
 cần cột phụ. `RANDARRAY` là volatile → mỗi lần Sheet tính lại là bộ 10 từ đổi; muốn ghim thì
 copy → Paste special → Values. Muốn hiện thêm IPA/nghĩa thì đổi `3` thành `3,8,9` và `10,1`
 thành `10,3`.
+
+**Tab `Recheck`** — từ đã học nhưng đến hạn ôn lại (learning 3 ngày, known 30 ngày), cũ nhất trước:
+```
+=IFERROR(ARRAY_CONSTRAIN(CHOOSECOLS(SORT(FILTER(terms!A2:V,(terms!U2:U<>"")*(((terms!R2:R="learning")*(TODAY()-terms!U2:U>=3))+((terms!R2:R="known")*(TODAY()-terms!U2:U>=30)))),21,TRUE),3),10,1),"nothing due")
+```
+`U` là `updated_at` — GAS ghi ngày thật mỗi lần `vocab mark`, nên nó là đồng hồ ôn tập. Đúng ở
+tab này thì từ ở lại `known` và đồng hồ về 30 ngày; quên thì `learning` và hiện lại trong
+`Shuffle` ngay.
 
 **Tab `Words`** — chỉ từ đơn (key không có dấu cách):
 ```
@@ -209,12 +223,39 @@ Hai tab này dựa vào cột `key` sau chuẩn hoá: `high-stakes` nằm ở `W
 > Công thức trên dùng `,` làm dấu ngăn cách tham số (locale mặc định). Nếu Sheet của bạn
 > ở locale dùng `;` (vi_VN), đổi **mọi** `,` trong các công thức trên thành `;`.
 
+## Chấm bài (agent)
+
+Bạn nhớ nghĩa rồi gõ tiếng Việt vào **cột B** của `Shuffle` (hoặc `Recheck`), sau đó nhờ agent
+chấm. Không có đáp án nào khớp máy móc, nên việc chấm là của LLM: nó chấp nhận đồng nghĩa, diễn
+giải, và lỗi chính tả không gây nhầm nghĩa.
+
+```
+bạn:   chấm bài giúp tôi
+agent: vocab sheet → vocab check → chấm theo nghĩa → vocab mark → bảng kết quả
+```
+
+Luồng và rubric nằm trong skill `.opencode/skills/vocab-grade/SKILL.md`. Ba lệnh agent dùng:
+
+| Lệnh | Việc |
+|---|---|
+| `vocab sheet --name Shuffle` | đọc cặp (term, đáp án) ở cột A/B của tab |
+| `vocab check "drift" …` | lấy `meaning_short`/`meaning_vi` làm đáp án chuẩn |
+| `vocab mark "drift" --status known` | đạt → `known`, không đạt → `learning` |
+
+**Ôn lại sau khi đã đúng:** `known` không phải vĩnh viễn. Tab `Recheck` hiện lại từ `learning`
+sau 3 ngày và `known` sau 30 ngày; quên ở đó thì nó về `learning` và xuất hiện ngay trong
+`Shuffle`. Muốn nhịp khác thì sửa `3` và `30` trong công thức.
+
+**Cảnh báo:** ghi `status` làm `Shuffle`/`Recheck` tính lại (`RANDARRAY`/`TODAY`), nên cột B
+lệch hàng so với term ngay sau khi chấm. Agent đọc A+B trước khi ghi; bạn xoá cột B sau mỗi buổi
+và đừng dùng tab đó để "kiểm lại bài".
+
 ## Bảo mật
 
 | Mối đe doạ | Chặn bằng |
 |---|---|
 | Link Sheet lộ | Sheet Restricted, không share → link vô dụng |
-| URL Web App lộ | token 32B so sánh constant-time, chỉ 8 op trong allowlist, cap 1000 row/6h |
+| URL Web App lộ | token 32B so sánh constant-time, chỉ 9 op trong allowlist (5 read-only), cap 1000 row/6h |
 | Token bị commit | config nằm ngoài repo (`~/.config`), 600, `.gitignore` chặn `config.json`/`.env` |
 | Script lạm quyền | chỉ `SpreadsheetApp` của đúng file, không `DriveApp` |
 | Token lộ thật | đổi `TOKEN` trong Script Properties + config; Sheet vẫn private nên dữ liệu không bị đọc |
@@ -237,6 +278,7 @@ là xử lý xong.
 | `unknown_op` | endpoint chạy `Code.gs` cũ: dán lại file → Deploy → **New version** |
 | `delete` báo `not_found` | key sai hoặc dòng đã bị xoá — `vocab keys --plain` để xem key thật |
 | `error: confirm_required` | gọi `delete` thẳng qua HTTP mà thiếu `confirm:true`; CLI luôn gửi kèm |
+| `error: sheet_not_found` | `vocab sheet` gõ sai tên tab (`--name`), hoặc tab chưa tạo |
 | `too_many_items` | gửi >50 item trong 1 request — dùng `vocab import` (tự chia lô) |
 | Sửa `Code.gs` xong không thấy đổi | phải **Deploy → Manage deployments → Edit → New version** |
 

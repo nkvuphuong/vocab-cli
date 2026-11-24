@@ -290,6 +290,22 @@ def cmd_mark(args):
     return EXIT_OK
 
 
+def cmd_sheet(args):
+    """Prints a review tab (A = term, B = the answer the user typed) so it can be graded."""
+    result = api.call("read", sheet=args.name)
+    rows = [[i + 1, str(r[0]), str(r[1]) if len(r) > 1 else ""]
+            for i, r in enumerate(result.get("rows", []))
+            if r and str(r[0]).strip()]
+    if args.json:
+        _emit({"ok": True, "sheet": result.get("sheet", args.name), "count": len(rows),
+               "rows": [{"term": r[1], "answer": r[2]} for r in rows]})
+        return EXIT_OK
+    _table(["#", "term", "bạn viết"], rows)
+    answered = sum(1 for r in rows if r[2].strip())
+    print(f"{len(rows)} dòng · {answered} có đáp án")
+    return EXIT_OK
+
+
 def cmd_delete(args):
     rows, hit, missing = [], 0, 0
     for term in args.terms:
@@ -390,6 +406,11 @@ def build_parser():
 
     ping = sub.add_parser("ping", help="check endpoint + token")
     ping.set_defaults(func=cmd_ping)
+
+    sheet = sub.add_parser("sheet", help="read a review tab so the answers can be graded")
+    sheet.add_argument("--name", default="Shuffle", help="tab name (default Shuffle)")
+    sheet.add_argument("--json", action="store_true")
+    sheet.set_defaults(func=cmd_sheet)
 
     delete = sub.add_parser("delete", help="remove rows for good (Sheet has no undo)")
     delete.add_argument("terms", nargs="+")

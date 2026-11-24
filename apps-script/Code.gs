@@ -15,8 +15,8 @@ const HEADERS = [
   'last_seen_at', 'created_at', 'updated_at',
 ];
 
-const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'delete', 'list'];
-const READ_ONLY_OPS = ['ping', 'check', 'keys', 'list'];
+const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'delete', 'list', 'read'];
+const READ_ONLY_OPS = ['ping', 'check', 'keys', 'list', 'read'];
 const WRITABLE = [
   'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short', 'meaning_vi',
   'meaning_en', 'example', 'example_type', 'context_note', 'source_type',
@@ -73,7 +73,17 @@ function dispatch(op, body) {
   if (op === 'update') return updateRow(body);
   if (op === 'delete') return deleteRow(body);
   if (op === 'list') return listRows(body);
+  if (op === 'read') return readTab(body);
   return { ok: false, error: 'unknown_op' };
+}
+
+// Raw cell values of any tab, so the grading skill can read the answers the user
+// typed into Shuffle/Recheck column B. Read-only, no writes, no range parsing.
+function readTab(body) {
+  const name = String(body.sheet || SHEET_NAME);
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sheet) return { ok: false, error: 'sheet_not_found', sheet: name };
+  return { ok: true, op: 'read', sheet: name, rows: sheet.getDataRange().getValues() };
 }
 
 // ---------------------------------------------------------------- sheet access

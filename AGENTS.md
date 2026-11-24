@@ -3,7 +3,8 @@
 Tool nhỏ: CLI stdlib Python + Apps Script endpoint, ghi từ vựng vào một Google Sheet
 private. **Sheet là UI duy nhất** — không thêm web UI/extension trừ khi user yêu cầu.
 
-Skill `vocab-capture` nằm trong repo (`.opencode/skills/`), đọc nó trước khi lưu từ.
+Skill nằm trong repo (`.opencode/skills/`): `vocab-capture` (trích/lưu từ) và `vocab-grade`
+(chấm bài trên `Shuffle`/`Recheck`). Đọc skill tương ứng trước khi làm.
 Lệnh `vocab` chỉ có trong PATH khi user đã export; nếu không, gọi `bin/vocab` (tương đối
 từ repo root) hoặc `<repo>/bin/vocab`.
 
@@ -32,5 +33,10 @@ Deploy → Manage deployments → Edit → **New version**.
 - `MAX_BATCH` (GAS) và `BATCH` (`vocab/cli.py`) phải bằng nhau.
 - Dedupe theo `key`, không theo `term`: trùng thì `lookup_count+1`, **không** tạo dòng mới.
 - `delete` là op phá huỷ duy nhất: bắt buộc `confirm: true`, trả về row đã xoá, xoá theo
-  `key` đã chuẩn hoá. Không thêm `delete_many` — 11 lệnh rời vẫn rẻ hơn một op xoá hàng loạt.
+  `key` đã chuẩn hoá. Không thêm `delete_many` — lệnh rời vẫn rẻ hơn một op xoá hàng loạt.
+- `read` là op chỉ-đọc duy nhất trả cell thô của **một tab bất kỳ** (không nhận range), để
+  `vocab sheet` đọc bài làm. Không mở đường ghi ra ngoài `terms`.
+- Cột B của `Shuffle`/`Recheck` là bài làm của người dùng: agent đọc, **không ghi, không xoá**.
+- Lịch ôn dùng `status` + `updated_at` (3/30 ngày nằm trong công thức `Recheck`), không thêm
+  cột SRS trừ khi user yêu cầu.
 - Nghĩa/IPA/ví dụ do agent soạn, không bắt user cung cấp — xem skill `vocab-capture`.
