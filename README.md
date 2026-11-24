@@ -20,20 +20,24 @@ giá trị học, còn dán cả đoạn vào chat để hỏi nghĩa thì lần
 | Ghi chú rải rác, không ôn lại được | Một Google Sheet private là nơi lưu duy nhất; tab `Review`/`Shuffle`/`Words`/`Phrases` để ôn trên điện thoại |
 | Hạ tầng nặng cho một việc nhỏ | CLI Python stdlib + Apps Script: không DB, không OAuth, không API key LLM, không server |
 
-```mermaid
-flowchart LR
-    src["Nguồn<br/>URL · đoạn văn · 1 từ"] --> agent["Agent trong phiên chat"]
-    agent -->|"1. trích từ, soạn nghĩa + IPA + câu gốc"| cli["vocab import<br/>Python stdlib"]
-    cli -->|"2. dedupe theo key, chia lô 50<br/>HTTPS + token"| gas["Apps Script<br/>token · allowlist op · lock"]
-    gas -->|"3. ghi · sửa · xoá"| sheet[("Google Sheet private")]
-    sheet --> tabs["Tab Review · Shuffle · Words · Phrases"]
-    tabs -->|"4. ôn trên điện thoại"| you(["Bạn"])
-    you -->|"đọc nguồn mới, gặp lại từ cũ<br/>lookup_count + 1"| agent
-```
-
 Ý tưởng đến từ việc dùng chính các khóa học của Anthropic — nội dung dày thuật ngữ nhưng
 không có chỗ nào lưu lại từ mới gặp. Repo này là chỗ đó, với một nguyên tắc:
 **agent lo phần hiểu, Sheet lo phần nhớ, CLI chỉ là ống dẫn.**
+
+## Cách hoạt động
+
+```mermaid
+flowchart TD
+    src["Nguồn<br/>URL · đoạn văn · 1 từ"] --> agent["Agent trong phiên chat<br/>trích từ, soạn nghĩa + IPA"]
+    agent --> cli["vocab import<br/>dedupe theo key, chia lô 50"]
+    cli -->|"HTTPS + token"| gas["Apps Script<br/>token · allowlist op · lock"]
+    gas -->|"ghi · sửa · xoá"| sheet[("Google Sheet private")]
+    sheet --> tabs["Tab Review · Shuffle ·<br/>Words · Phrases"]
+    tabs --> you(["Ôn trên điện thoại"])
+```
+
+Gặp lại từ cũ thì không tạo dòng mới: chỉ `lookup_count + 1`, nên Sheet tự cho biết từ nào
+đáng ôn lại.
 
 ## Cài đặt (làm 1 lần, ~10 phút)
 
