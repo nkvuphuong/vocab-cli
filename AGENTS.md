@@ -3,6 +3,10 @@
 Tool nhỏ: CLI stdlib Python + Apps Script endpoint, ghi từ vựng vào một Google Sheet
 private. **Sheet là UI duy nhất** — không thêm web UI/extension trừ khi user yêu cầu.
 
+Skill `vocab-capture` nằm trong repo (`.opencode/skills/`), đọc nó trước khi lưu từ.
+Lệnh `vocab` chỉ có trong PATH khi user đã export; nếu không, gọi `bin/vocab` (tương đối
+từ repo root) hoặc `<repo>/bin/vocab`.
+
 ## Kiểm tra trước khi kết thúc
 
 ```bash

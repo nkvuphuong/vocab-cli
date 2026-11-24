@@ -10,6 +10,7 @@ agent (chat) ──► bin/vocab ──HTTPS+token──► Apps Script ──�
 
 - Sheet là nơi bạn **xem lại** (điện thoại/web), có tab `Review` + `Shuffle`.
 - `bin/vocab` chỉ là HTTP client ~200 dòng, stdlib, không giữ secret trong repo.
+  (`certifi` là dependency **tuỳ chọn**, chỉ cần khi OpenSSL của Python không có CA path.)
 
 ## Cài đặt (làm 1 lần, ~10 phút)
 
@@ -44,7 +45,7 @@ Thêm `bin/` vào PATH (copy nguyên 3 dòng dưới, không dán kèm ghi chú 
 `#` là comment khi gõ tay, nó sẽ thành một lệnh lỗi):
 
 ```bash
-echo 'export PATH="$HOME/Documents/dev/personal_projects/vocab-cli/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/path/to/vocab-cli/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 vocab ping
 ```
