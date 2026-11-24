@@ -15,7 +15,7 @@ const HEADERS = [
   'created_at', 'updated_at',
 ];
 
-const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'list'];
+const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'delete', 'list'];
 const READ_ONLY_OPS = ['ping', 'check', 'keys', 'list'];
 const WRITABLE = [
   'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_vi', 'meaning_en',
@@ -71,6 +71,7 @@ function dispatch(op, body) {
   if (op === 'append') return appendRow(body.row || {});
   if (op === 'append_many') return appendMany(body);
   if (op === 'update') return updateRow(body);
+  if (op === 'delete') return deleteRow(body);
   if (op === 'list') return listRows(body);
   return { ok: false, error: 'unknown_op' };
 }
@@ -243,6 +244,24 @@ function updateRow(body) {
   HEADERS.forEach(function (h) { updated[h] = found.row[h]; });
   WRITABLE.forEach(function (f) { if (patch[f] !== undefined) updated[f] = patch[f]; });
   return { ok: true, op: 'update', key: key, id: found.row.id, row: pick(updated) };
+}
+
+// Destructive: the sheet has no undo, so the caller must pass confirm:true and the
+// deleted row comes back in the response for a manual restore.
+function deleteRow(body) {
+  const key = normalizeKey(body.key || body.term || '');
+  if (!key) return { ok: false, error: 'missing_key' };
+  if (body.confirm !== true) return { ok: false, error: 'confirm_required' };
+
+  const sheet = getSheet();
+  const found = findRow(key);
+  if (!found) return { ok: false, error: 'not_found', key: key };
+
+  sheet.deleteRow(found.rowIndex);
+  return {
+    ok: true, op: 'delete', key: key, term: found.row.term, id: found.row.id,
+    row: pick(found.row),
+  };
 }
 
 function listRows(body) {

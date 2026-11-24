@@ -28,5 +28,6 @@ Deploy → Manage deployments → Edit → **New version**.
   nhau — sửa cái này phải sửa cái kia và cập nhật `selftest()` + `T1Normalize`.
 - `MAX_BATCH` (GAS) và `BATCH` (`vocab/cli.py`) phải bằng nhau.
 - Dedupe theo `key`, không theo `term`: trùng thì `lookup_count+1`, **không** tạo dòng mới.
-- Không có op xoá dòng (cố ý). Đừng thêm nếu user không yêu cầu.
+- `delete` là op phá huỷ duy nhất: bắt buộc `confirm: true`, trả về row đã xoá, xoá theo
+  `key` đã chuẩn hoá. Không thêm `delete_many` — 11 lệnh rời vẫn rẻ hơn một op xoá hàng loạt.
 - Nghĩa/IPA/ví dụ do agent soạn, không bắt user cung cấp — xem skill `vocab-capture`.

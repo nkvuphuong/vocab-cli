@@ -89,6 +89,8 @@ vocab list --status new --domain evals --limit 10
 vocab list --json
 vocab keys --plain
 vocab mark drift --status learning
+vocab delete "block a merge" "narrow the gap"
+vocab delete "block a merge" --dry-run
 ```
 
 - `import` — đường dẫn chính: nhận JSON array (hoặc `{"items": [...]}`), dedupe theo
@@ -99,6 +101,8 @@ vocab mark drift --status learning
 - `keys` — danh sách key đã lưu, để pre-filter rẻ.
 - `list --json` — dạng máy đọc.
 - `mark` — đổi trạng thái ôn tập: `new` → `learning` → `known`.
+- `delete` — xoá hẳn dòng (không hoàn tác được): `vocab delete "block a merge"`,
+  hoặc `--dry-run` để xem trước. Key không thấy → exit 2, không xoá gì.
 - `add` — lưu đúng 1 từ bằng cờ (`--meaning-vi`, `--context`, …); vẫn dùng được nhưng
   agent dùng `import` là chính.
 
@@ -121,7 +125,7 @@ Ví dụ JSON cho `import`:
 |---|---|
 | 0 | xong |
 | 1 | lỗi API / token / mạng (không ghi gì) |
-| 2 | thiếu thông tin, cần hỏi lại (không ghi gì) |
+| 2 | thiếu thông tin hoặc `delete` không thấy key (không ghi gì) |
 
 ## Cột trong sheet
 
@@ -136,7 +140,7 @@ created_at updated_at` → A…U.
 
 ## Xem lại trên điện thoại (M4)
 
-Trong Sheet tạo 2 tab, dán công thức vào ô A1:
+Trong Sheet tạo 4 tab, dán công thức vào ô A1:
 
 **Tab `Review`** — từ chưa thuộc, mới gặp gần đây trước:
 ```
@@ -151,6 +155,19 @@ Trong Sheet tạo 2 tab, dán công thức vào ô A1:
 `RANDARRAY` là volatile → tab này xáo lại mỗi khi sheet tính lại; muốn xáo tay thì
 sửa 1 ô trống bất kỳ. Ở `Shuffle`, che cột nghĩa (cột C) nếu muốn tự nhớ trước.
 
+**Tab `Words`** — chỉ từ đơn (key không có dấu cách):
+```
+=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:U,(terms!B2:B<>"")*ISERROR(FIND(" ",terms!B2:B))),3,8,9,4),1,TRUE),"no terms yet")
+```
+
+**Tab `Phrases`** — chỉ cụm từ (key có dấu cách):
+```
+=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:U,ISNUMBER(FIND(" ",terms!B2:B))),3,8,9,4),1,TRUE),"no terms yet")
+```
+Hai tab này dựa vào cột `key` sau chuẩn hoá: `high-stakes` nằm ở `Words` (một từ ghép),
+`back up` / `at any price` nằm ở `Phrases`. Đây là **view**, không phải nơi lưu — sửa
+`status` bằng `vocab mark`, đừng sửa trong 2 tab này.
+
 **Dropdown cho cột `status`** (Q2:Q): Data → Data validation → List of items →
 `new, learning, known`.
 
@@ -159,7 +176,7 @@ sửa 1 ô trống bất kỳ. Ở `Shuffle`, che cột nghĩa (cột C) nếu m
 | Mối đe doạ | Chặn bằng |
 |---|---|
 | Link Sheet lộ | Sheet Restricted, không share → link vô dụng |
-| URL Web App lộ | token 32B so sánh constant-time, chỉ 7 op trong allowlist, cap 1000 row/6h |
+| URL Web App lộ | token 32B so sánh constant-time, chỉ 8 op trong allowlist, cap 1000 row/6h |
 | Token bị commit | config nằm ngoài repo (`~/.config`), 600, `.gitignore` chặn `config.json`/`.env` |
 | Script lạm quyền | chỉ `SpreadsheetApp` của đúng file, không `DriveApp` |
 | Token lộ thật | đổi `TOKEN` trong Script Properties + config; Sheet vẫn private nên dữ liệu không bị đọc |
@@ -180,6 +197,8 @@ là xử lý xong.
 | HTML thay vì JSON, hoặc `HTTP 401` | deployment để access "Only myself" thay vì "Anyone" |
 | `error: daily_cap_reached` | >1000 row trong ~6h — chờ, hoặc nâng `DAILY_WRITE_CAP` |
 | `unknown_op` | endpoint chạy `Code.gs` cũ: dán lại file → Deploy → **New version** |
+| `delete` báo `not_found` | key sai hoặc dòng đã bị xoá — `vocab keys --plain` để xem key thật |
+| `error: confirm_required` | gọi `delete` thẳng qua HTTP mà thiếu `confirm:true`; CLI luôn gửi kèm |
 | `too_many_items` | gửi >50 item trong 1 request — dùng `vocab import` (tự chia lô) |
 | Sửa `Code.gs` xong không thấy đổi | phải **Deploy → Manage deployments → Edit → New version** |
 

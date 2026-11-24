@@ -40,6 +40,7 @@ function makeApi(initialRows, token) {
     appendRow: (row) => data.push(row.slice()),
     setFrozenRows: () => {},
     insertSheet: () => sheet,
+    deleteRow: (rowIndex) => { data.splice(rowIndex - 1, 1); },
     getRange: (row, col, numRows, numCols) => ({
       getValues: () => {
         const out = [];
@@ -184,6 +185,38 @@ check('list filters by status and domain', () => {
   post(api, { token: 'tok', op: 'update', key: 'rubric', patch: { status: 'known', domain: 'evals' } });
   eq(post(api, { token: 'tok', op: 'list', status: 'known' }).rows.map((r) => r.term), ['rubric']);
   eq(post(api, { token: 'tok', op: 'list', domain: 'eval' }).count, 1, 'domain substring');
+});
+
+check('delete removes the row and the ones below shift up', () => {
+  const { api, data } = makeApi(HEAD, 'tok');
+  post(api, { token: 'tok', op: 'append_many', items: [row('drift', 'lệch'), row('rubric', 'tiêu chí')] });
+  const res = post(api, { token: 'tok', op: 'delete', key: 'drift', confirm: true });
+  eq(res.term, 'drift', 'term echoed');
+  eq(res.row.meaning_vi, 'lệch', 'deleted row returned');
+  eq(data.length, 2, 'sheet rows');
+  eq(post(api, { token: 'tok', op: 'keys' }).keys, ['rubric'], 'keys after delete');
+  eq(post(api, { token: 'tok', op: 'check', term: 'drift' }).exists, false, 'gone');
+});
+
+check('delete needs confirm:true', () => {
+  const { api, data } = makeApi(HEAD, 'tok');
+  post(api, { token: 'tok', op: 'append_many', items: [row('drift', 'lệch')] });
+  eq(post(api, { token: 'tok', op: 'delete', key: 'drift' }).error, 'confirm_required');
+  eq(data.length, 2, 'nothing deleted');
+});
+
+check('delete reports not_found and deletes nothing', () => {
+  const { api, data } = makeApi(HEAD, 'tok');
+  post(api, { token: 'tok', op: 'append_many', items: [row('drift', 'lệch')] });
+  eq(post(api, { token: 'tok', op: 'delete', key: 'nope', confirm: true }).error, 'not_found');
+  eq(data.length, 2, 'nothing deleted');
+});
+
+check('delete is rejected for a wrong token', () => {
+  const { api, data } = makeApi(HEAD, 'tok');
+  post(api, { token: 'tok', op: 'append_many', items: [row('drift', 'lệch')] });
+  eq(post(api, { token: 'nope', op: 'delete', key: 'drift', confirm: true }).error, 'unauthorized');
+  eq(data.length, 2, 'nothing deleted');
 });
 
 console.log(failures ? '\n' + failures + ' FAILED' : '\nall passed');

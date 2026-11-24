@@ -297,5 +297,62 @@ class T6KeysAndMultiCheck(unittest.TestCase):
         self.assertEqual(len(fake.calls), 2)
 
 
+class DeleteFake:
+    """Simulates check/delete; deleting a row really removes it from the fake sheet."""
+
+    def __init__(self, existing=("drift", "rubric")):
+        self.calls = []
+        self.existing = {k: dict(ROW, key=k, term=k, type="word") for k in existing}
+
+    def __call__(self, op, timeout=None, **payload):
+        self.calls.append({"op": op, **payload})
+        if op == "check":
+            key = normalize_key(payload["term"])
+            if key in self.existing:
+                return {"ok": True, "key": key, "exists": True, "row": dict(self.existing[key])}
+            return {"ok": True, "key": key, "exists": False, "row": None}
+        if op == "delete":
+            key = payload["key"]
+            if key not in self.existing:
+                raise api_module.ApiError("not_found", {"ok": False, "error": "not_found"})
+            return {"ok": True, "op": "delete", "key": key, "id": "id-1",
+                    "row": dict(self.existing.pop(key))}
+        raise AssertionError(f"unexpected op {op}")
+
+
+class T7Delete(unittest.TestCase):
+
+    def test_deletes_and_asks_for_confirm(self):
+        fake = DeleteFake()
+        code, out, _ = run(["delete", "Drift."], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls, [{"op": "delete", "key": "drift", "confirm": True}])
+        self.assertIn("đã xoá", out)
+        self.assertIn("1 đã xoá · 0 không thấy", out)
+        self.assertEqual(list(fake.existing), ["rubric"])
+
+    def test_missing_key_exits_needs_without_writing(self):
+        fake = DeleteFake()
+        code, out, _ = run(["delete", "nope"], fake)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        self.assertIn("không thấy", out)
+        self.assertEqual(len(fake.existing), 2)
+
+    def test_dry_run_never_deletes(self):
+        fake = DeleteFake()
+        code, out, _ = run(["delete", "drift", "--dry-run"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual([c["op"] for c in fake.calls], ["check"])
+        self.assertIn("sẽ xoá", out)
+        self.assertEqual(len(fake.existing), 2)
+
+    def test_many_terms_in_one_call(self):
+        fake = DeleteFake()
+        code, out, _ = run(["delete", "drift", "rubric"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(len([c for c in fake.calls if c["op"] == "delete"]), 2)
+        self.assertEqual(fake.existing, {})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

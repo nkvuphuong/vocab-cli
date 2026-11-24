@@ -238,6 +238,41 @@ def cmd_mark(args):
     return EXIT_OK
 
 
+def cmd_delete(args):
+    rows, hit, missing = [], 0, 0
+    for term in args.terms:
+        key = normalize_key(term.strip())
+        if args.dry_run:
+            found = api.call("check", term=term.strip())
+            row = found.get("row") or {}
+            rows.append([row.get("term", term), row.get("type", ""),
+                         "sẽ xoá" if found["exists"] else "không thấy"])
+            hit, missing = (hit + 1, missing) if found["exists"] else (hit, missing + 1)
+            continue
+        if not key:
+            rows.append([term, "", "trống"])
+            missing += 1
+            continue
+        try:
+            result = api.call("delete", key=key, confirm=True)
+        except api.ApiError as err:
+            if str(err) != "not_found":
+                raise
+            rows.append([term, "", "không thấy"])
+            missing += 1
+            continue
+        rows.append([result["row"].get("term", term), result["row"].get("type", ""), "đã xoá"])
+        hit += 1
+
+    if args.json:
+        _emit({"ok": not missing, "dry_run": args.dry_run, "deleted": hit,
+               "missing": missing, "rows": rows})
+    else:
+        _table(["term", "loại", "kết quả"], rows)
+        print(f"{hit} {'sẽ xoá' if args.dry_run else 'đã xoá'} · {missing} không thấy")
+    return EXIT_OK if not missing else EXIT_NEEDS
+
+
 def cmd_ping(args):
     _emit(api.call("ping"))
     return EXIT_OK
@@ -296,6 +331,12 @@ def build_parser():
 
     ping = sub.add_parser("ping", help="check endpoint + token")
     ping.set_defaults(func=cmd_ping)
+
+    delete = sub.add_parser("delete", help="remove rows for good (Sheet has no undo)")
+    delete.add_argument("terms", nargs="+")
+    delete.add_argument("--dry-run", action="store_true", help="show what would go, delete nothing")
+    delete.add_argument("--json", action="store_true")
+    delete.set_defaults(func=cmd_delete)
 
     return parser
 

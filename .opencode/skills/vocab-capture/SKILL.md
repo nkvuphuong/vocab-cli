@@ -46,6 +46,11 @@ gọi `<repo>/bin/vocab` — thêm `bin/` vào PATH mới gõ được `vocab`.
 - Identifier/code/API (`SpreadsheetApp`, `drift_check`, `e.postData`, `--source-url`).
 - Số liệu, ngày tháng, đơn vị đo.
 - Từ mà nghĩa trong câu không khác gì nghĩa đen hiển nhiên (trừ khi là thuật ngữ).
+- Cụm mà nghĩa **cộng lại được** từ các từ đơn (`block a merge`, `narrow the gap`,
+  `domain expertise`, `task delegation`, `extraction prompt`). Chỉ lưu cụm khi nghĩa
+  **lệch** khỏi tổng các phần: idiom, phrasal verb, ẩn dụ/thuật ngữ (`accuracy floor`,
+  `pull request`, `live traffic`, `smoke eval`). Cụm cơ học thì lưu các **từ đơn** đáng
+  học bên trong nó (`expertise`, `awareness`, `evidence`).
 
 Một tài liệu dài có thể ra 40–60 từ. Không cắt bớt cho tròn số; cũng đừng thêm từ rác
 cho đủ số lượng.
