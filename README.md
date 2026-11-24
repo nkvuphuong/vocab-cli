@@ -58,35 +58,61 @@ Nếu muốn đặt lệnh ở `/usr/local/bin` thì cần `sudo` — PATH là c
 
 ## Dùng
 
-Lưu một từ (dán nguyên khối, **không** kèm ghi chú `#` — zsh sẽ coi đó là argument):
+**Cách chính: nói với agent, không gõ lệnh.**
 
-```bash
-vocab add drift \
-  --meaning-vi "sự lệch chất lượng model/output theo thời gian" \
-  --context "Catch drift by grading a nightly sample of live traffic." \
-  --type tech_term --cefr C1 --domain evals --ipa "/drɪft/" \
-  --example "Catch drift by grading a nightly sample of live traffic." \
-  --example-type source \
-  --source-url "https://academy.claude.com/courses/introduction-to-evals" \
-  --source-title "Introduction to evals"
+> "lưu từ vựng từ `https://academy.claude.com/courses/introduction-to-evals`"
+> "lưu các từ mới trong đoạn này: …"
+> "lưu `accuracy floor`"  ← từ trần, agent sẽ hỏi 1 câu để chọn nghĩa
+
+Agent đọc nguồn, tự trích từ/cụm từ đáng lưu (cả thuật ngữ IT và từ nâng cao), tự viết
+nghĩa tiếng Việt + IPA + câu ví dụ, rồi gọi `vocab import` một lần và trả về bảng:
+
+```
+term             loại       nghĩa                              kết quả
+accuracy floor   phrase     ngưỡng sàn độ chính xác tối thiểu   mới
+drift            tech_term  lệch chất lượng theo thời gian      đã có (gặp lần 3)
+
+12 mới · 3 đã có · 0 lỗi
 ```
 
-Các lệnh còn lại, mỗi lệnh một dòng:
+Bạn **không** cần cung cấp nghĩa, phiên âm hay ví dụ. Không giới hạn số từ mỗi lượt;
+CLI tự chia lô 50 dòng/request.
+
+### Lệnh cho agent (và cho bạn khi cần)
 
 ```bash
-vocab check drift
+vocab import --file rows.json
+vocab import --file - --dry-run
+vocab check "drift" "accuracy floor"
 vocab list --status new --domain evals --limit 10
 vocab list --json
+vocab keys --plain
 vocab mark drift --status learning
 ```
 
-`check` = đã có chưa (in luôn nghĩa cũ, exit 0 cả khi chưa có, xem `exists`).
-`list --json` = dạng máy đọc, cho agent.
-`mark` = đổi trạng thái ôn tập: `new` → `learning` → `known`.
+- `import` — đường dẫn chính: nhận JSON array (hoặc `{"items": [...]}`), dedupe theo
+  `key`, trùng thì chỉ `lookup_count+1`. Mọi dòng phải có `term`, `meaning_vi` và
+  (`context_note` hoặc `source_url`) — thiếu thì **không ghi gì**, exit 2.
+- `import --dry-run` — in `mới` / `đã có` mà không ghi.
+- `check` — kiểm tra tồn tại + in nghĩa cũ (nhiều từ một lượt).
+- `keys` — danh sách key đã lưu, để pre-filter rẻ.
+- `list --json` — dạng máy đọc.
+- `mark` — đổi trạng thái ôn tập: `new` → `learning` → `known`.
+- `add` — lưu đúng 1 từ bằng cờ (`--meaning-vi`, `--context`, …); vẫn dùng được nhưng
+  agent dùng `import` là chính.
 
-`add` **từ chối ghi** (exit `2`, JSON `{"needs_context": true}`) khi thiếu
-`--meaning-vi` hoặc thiếu cả `--context` lẫn `--source-url`. Đó là gate chống lưu
-nghĩa đoán — agent phải hỏi lại ngữ cảnh trước.
+Ví dụ JSON cho `import`:
+
+```json
+[
+  {"term": "accuracy floor", "meaning_vi": "ngưỡng sàn độ chính xác tối thiểu phải đạt",
+   "type": "phrase", "cefr": "C1", "domain": "evals",
+   "example": "Set an accuracy floor from what one wrong answer would cost you.",
+   "example_type": "source",
+   "context_note": "Set an accuracy floor from what one wrong answer would cost you.",
+   "source_url": "https://academy.claude.com/courses/introduction-to-evals"}
+]
+```
 
 ### Exit codes
 
@@ -132,7 +158,7 @@ sửa 1 ô trống bất kỳ. Ở `Shuffle`, che cột nghĩa (cột C) nếu m
 | Mối đe doạ | Chặn bằng |
 |---|---|
 | Link Sheet lộ | Sheet Restricted, không share → link vô dụng |
-| URL Web App lộ | token 32B so sánh constant-time, chỉ 5 op trong allowlist, cap 200 write/6h |
+| URL Web App lộ | token 32B so sánh constant-time, chỉ 7 op trong allowlist, cap 1000 row/6h |
 | Token bị commit | config nằm ngoài repo (`~/.config`), 600, `.gitignore` chặn `config.json`/`.env` |
 | Script lạm quyền | chỉ `SpreadsheetApp` của đúng file, không `DriveApp` |
 | Token lộ thật | đổi `TOKEN` trong Script Properties + config; Sheet vẫn private nên dữ liệu không bị đọc |
@@ -151,11 +177,16 @@ là xử lý xong.
 | `error: unauthorized` | token trong config khác `Script Properties.TOKEN`, hoặc chưa deploy lại sau khi sửa |
 | `error: missing_meaning_vi` | `add` gọi mà không có `--meaning-vi` (gate hoạt động đúng) |
 | HTML thay vì JSON, hoặc `HTTP 401` | deployment để access "Only myself" thay vì "Anyone" |
-| `error: daily_cap_reached` | >200 lần ghi trong ~6h — chờ, hoặc nâng `DAILY_WRITE_CAP` |
+| `error: daily_cap_reached` | >1000 row trong ~6h — chờ, hoặc nâng `DAILY_WRITE_CAP` |
+| `unknown_op` | endpoint chạy `Code.gs` cũ: dán lại file → Deploy → **New version** |
+| `too_many_items` | gửi >50 item trong 1 request — dùng `vocab import` (tự chia lô) |
 | Sửa `Code.gs` xong không thấy đổi | phải **Deploy → Manage deployments → Edit → New version** |
 
 Chạy self-check của tool:
 ```bash
 python3 tests/test_cli.py
+node tests/test_gas.js
 ```
-Và trong Apps Script editor: chọn hàm `selftest` → Run → xem Logs `selftest OK`.
+`test_gas.js` chạy `Code.gs` với SpreadsheetApp/CacheService giả lập — bắt lỗi logic
+append/dedupe **trước khi** dán vào editor. Ngoài ra trong Apps Script editor: chọn hàm
+`selftest` → Run → xem Logs `selftest OK`.

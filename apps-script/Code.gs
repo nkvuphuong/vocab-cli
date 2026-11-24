@@ -15,8 +15,8 @@ const HEADERS = [
   'created_at', 'updated_at',
 ];
 
-const OPS = ['ping', 'check', 'append', 'update', 'list'];
-const READ_ONLY_OPS = ['ping', 'check', 'list'];
+const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'list'];
+const READ_ONLY_OPS = ['ping', 'check', 'keys', 'list'];
 const WRITABLE = [
   'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_vi', 'meaning_en',
   'example', 'example_type', 'context_note', 'source_type', 'source_url',
@@ -25,7 +25,10 @@ const WRITABLE = [
 
 // shortcut: CacheService caps TTL at 6h, so the daily cap resets every ~6h.
 // Upgrade to a counter row in the sheet only if abuse becomes real.
-const DAILY_WRITE_CAP = 200;
+const DAILY_WRITE_CAP = 1000;
+
+// Max rows per append_many call; the CLI chunks larger imports.
+const MAX_BATCH = 50;
 
 function doPost(e) {
   try {
@@ -34,7 +37,7 @@ function doPost(e) {
 
     const op = String(body.op || '');
     if (OPS.indexOf(op) < 0) return json({ ok: false, error: 'unknown_op', op: op });
-    if (READ_ONLY_OPS.indexOf(op) < 0 && !takeWriteSlot()) {
+    if (READ_ONLY_OPS.indexOf(op) < 0 && !takeWriteSlot(op === 'append_many' ? (body.items || []).length : 1)) {
       return json({ ok: false, error: 'daily_cap_reached' });
     }
 
@@ -64,7 +67,9 @@ function dispatch(op, body) {
     const found = findRow(key);
     return { ok: true, op: op, key: key, exists: !!found, row: found ? found.row : null };
   }
+  if (op === 'keys') return listKeys();
   if (op === 'append') return appendRow(body.row || {});
+  if (op === 'append_many') return appendMany(body);
   if (op === 'update') return updateRow(body);
   if (op === 'list') return listRows(body);
   return { ok: false, error: 'unknown_op' };
@@ -141,8 +146,15 @@ function appendRow(input) {
   }
 
   const now = new Date();
+  const rec = newRecord(input, now);
+  sheet.appendRow(HEADERS.map(function (h) { return rec[h] === undefined ? '' : rec[h]; }));
+  return { ok: true, op: 'append', created: true, duplicate: false, id: rec.id, row: pick(rec) };
+}
+
+function newRecord(input, now) {
+  const term = String(input.term || '').trim();
   const rec = {
-    id: Utilities.getUuid(), key: key, term: term,
+    id: Utilities.getUuid(), key: normalizeKey(term), term: term,
     status: 'new', lookup_count: 1,
     created_at: now, updated_at: now, last_seen_at: now,
   };
@@ -151,9 +163,61 @@ function appendRow(input) {
   });
   rec.status = String(rec.status || 'new');
   rec.example_type = String(rec.example_type || 'generated');
+  return rec;
+}
 
-  sheet.appendRow(HEADERS.map(function (h) { return rec[h] === undefined ? '' : rec[h]; }));
-  return { ok: true, op: 'append', created: true, duplicate: false, id: rec.id, row: pick(rec) };
+// Batch path: one lock, one read, one setValues() for all new rows.
+function appendMany(body) {
+  const items = body.items;
+  if (!Array.isArray(items) || !items.length) return { ok: false, error: 'missing_items' };
+  if (items.length > MAX_BATCH) return { ok: false, error: 'too_many_items', max: MAX_BATCH };
+
+  const sheet = getSheet();
+  const index = {};
+  readAll(sheet).forEach(function (x) { index[String(x.row.key)] = x; });
+
+  const matrix = [];
+  const created = [];
+  const duplicates = [];
+  const errors = [];
+  const now = new Date();
+
+  items.forEach(function (input) {
+    const term = String((input && input.term) || '').trim();
+    if (!term) return errors.push({ term: '', error: 'missing_term' });
+    if (!String(input.meaning_vi || '').trim()) return errors.push({ term: term, error: 'missing_meaning_vi' });
+
+    const key = normalizeKey(term);
+    const hit = index[key];
+    if (hit) {
+      const count = Number(hit.row.lookup_count || 0) + 1;
+      if (hit.rowIndex > 0) {
+        setCell(sheet, hit.rowIndex, 'lookup_count', count);
+        setCell(sheet, hit.rowIndex, 'last_seen_at', now);
+        setCell(sheet, hit.rowIndex, 'updated_at', now);
+      }
+      hit.row.lookup_count = count;
+      return duplicates.push({
+        key: key, term: hit.row.term, lookup_count: count,
+        meaning_vi: hit.row.meaning_vi,
+      });
+    }
+
+    const rec = newRecord(input, now);
+    index[key] = { rowIndex: -1, row: rec };  // catches repeats inside the same batch
+    matrix.push(HEADERS.map(function (h) { return rec[h] === undefined ? '' : rec[h]; }));
+    created.push({ key: key, term: term, id: rec.id, meaning_vi: rec.meaning_vi });
+  });
+
+  if (matrix.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, matrix.length, HEADERS.length).setValues(matrix);
+  }
+  return { ok: true, op: 'append_many', created: created, duplicates: duplicates, errors: errors };
+}
+
+function listKeys() {
+  const rows = readAll(getSheet());
+  return { ok: true, op: 'keys', count: rows.length, keys: rows.map(function (x) { return String(x.row.key); }) };
 }
 
 function updateRow(body) {
@@ -220,12 +284,13 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-function takeWriteSlot() {
+function takeWriteSlot(cost) {
   const cache = CacheService.getScriptCache();
   const k = 'w_' + Utilities.formatDate(new Date(), 'UTC', 'yyyyMMdd');
   const n = Number(cache.get(k) || 0);
-  if (n >= DAILY_WRITE_CAP) return false;
-  cache.put(k, String(n + 1), 21600);
+  const c = Math.max(1, Number(cost) || 1);
+  if (n + c > DAILY_WRITE_CAP) return false;
+  cache.put(k, String(n + c), 21600);
   return true;
 }
 

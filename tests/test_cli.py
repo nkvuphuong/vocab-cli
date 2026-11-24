@@ -8,6 +8,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
@@ -161,6 +162,139 @@ class T4Other(unittest.TestCase):
         code, out, _ = run(["ping"], boom)
         self.assertEqual(code, cli.EXIT_API)
         self.assertEqual(json.loads(out)["error"], "unauthorized")
+
+
+class ImportFake:
+    """Simulates append_many/keys as the Apps Script endpoint would behave."""
+
+    def __init__(self, existing=()):
+        self.calls = []
+        self.existing = set(existing)
+
+    def __call__(self, op, timeout=None, **payload):
+        self.calls.append({"op": op, **payload})
+        if op == "keys":
+            return {"ok": True, "count": len(self.existing), "keys": sorted(self.existing)}
+        if op == "append_many":
+            created, duplicates = [], []
+            for item in payload["items"]:
+                key = normalize_key(item["term"])
+                if key in self.existing:
+                    duplicates.append({"key": key, "term": item["term"],
+                                       "lookup_count": 2, "meaning_vi": item["meaning_vi"]})
+                else:
+                    self.existing.add(key)
+                    created.append({"key": key, "term": item["term"], "id": "x",
+                                    "meaning_vi": item["meaning_vi"]})
+            return {"ok": True, "op": "append_many", "created": created,
+                    "duplicates": duplicates, "errors": []}
+        raise AssertionError(f"unexpected op {op}")
+
+
+def import_args(rows, *extra):
+    handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+    json.dump(rows, handle)
+    handle.close()
+    return ["import", "--file", handle.name, *extra], handle.name
+
+
+ROWS = [
+    {"term": "accuracy floor", "meaning_vi": "ngưỡng sàn độ chính xác", "type": "phrase",
+     "context_note": "Set an accuracy floor from what one wrong answer would cost you."},
+    {"term": "LLM judge", "meaning_vi": "dùng LLM khác để chấm output", "type": "tech_term",
+     "source_url": "https://example.test/evals"},
+]
+
+
+class T5Import(unittest.TestCase):
+
+    def tearDown(self):
+        for arg in list(getattr(self, "_tmp", [])):
+            os.unlink(arg)
+
+    def _run(self, rows, *extra):
+        argv, path = import_args(rows, *extra)
+        self._tmp = getattr(self, "_tmp", []) + [path]
+        return run(argv, ImportFake())
+
+    def test_writes_all_rows_in_one_call(self):
+        fake = ImportFake()
+        argv, path = import_args(ROWS)
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual([c["op"] for c in fake.calls], ["append_many"])
+        self.assertEqual(len(fake.calls[0]["items"]), 2)
+        self.assertIn("2 mới", out)
+
+    def test_mixed_new_and_existing(self):
+        fake = ImportFake(existing=["drift"])
+        argv, path = import_args(ROWS + [{"term": "drift", "meaning_vi": "sự lệch",
+                                          "context_note": "x"}])
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertIn("2 mới", out)
+        self.assertIn("1 đã có", out)
+
+    def test_chunks_large_import(self):
+        rows = [{"term": f"term {i}", "meaning_vi": "nghĩa", "context_note": "ctx"}
+                for i in range(120)]
+        fake = ImportFake()
+        argv, path = import_args(rows)
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual([len(c["items"]) for c in fake.calls], [50, 50, 20])
+
+    def test_rejects_rows_without_meaning(self):
+        fake = ImportFake()
+        argv, path = import_args([{"term": "floor", "context_note": "Set an accuracy floor"}])
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        payload = json.loads(out)
+        self.assertEqual(payload["reason"], "invalid_rows")
+        self.assertEqual(payload["invalid"][0]["missing"], ["meaning_vi"])
+        self.assertEqual(fake.calls, [])
+
+    def test_rejects_rows_without_context(self):
+        fake = ImportFake()
+        argv, path = import_args([{"term": "floor", "meaning_vi": "ngưỡng sàn"}])
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        self.assertEqual(json.loads(out)["invalid"][0]["missing"], ["context_note|source_url"])
+        self.assertEqual(fake.calls, [])
+
+    def test_dry_run_writes_nothing(self):
+        fake = ImportFake(existing=["drift"])
+        argv, path = import_args(ROWS, "--dry-run")
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual([c["op"] for c in fake.calls], ["keys"])
+        self.assertIn("chưa ghi gì", out)
+
+
+class T6KeysAndMultiCheck(unittest.TestCase):
+
+    def test_keys_plain(self):
+        fake = ImportFake(existing=["drift", "rubric"])
+        code, out, _ = run(["keys", "--plain"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(out.split(), ["drift", "rubric"])
+
+    def test_check_many_terms(self):
+        fake = FakeApi(
+            check={"ok": True, "key": "drift", "exists": True, "row": ROW},
+        )
+        code, out, _ = run(["check", "drift", "floor"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        payload = json.loads(out)
+        self.assertEqual(payload["count"], 2)
+        self.assertTrue(payload["results"][0]["exists"])
+        self.assertEqual(len(fake.calls), 2)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,8 @@ SOURCE_TYPES = ["url", "text", "term"]
 SUMMARY_FIELDS = ["term", "key", "type", "cefr", "domain", "ipa", "meaning_vi", "status",
                   "example", "source_url", "id"]
 
+BATCH = 50  # must match MAX_BATCH in apps-script/Code.gs
+
 
 def _emit(obj):
     print(json.dumps(obj, ensure_ascii=False, indent=2))
@@ -31,6 +33,21 @@ def _needs(reason, **extra):
 
 def _summary(row):
     return {f: row.get(f, "") for f in SUMMARY_FIELDS}
+
+
+def _clip(text, width=55):
+    text = str(text or "")
+    return text if len(text) <= width else text[: width - 3] + "..."
+
+
+def _table(header, rows):
+    if not rows:
+        print("(no terms)")
+        return
+    data = [header] + [[_clip(c, 60) for c in row] for row in rows]
+    widths = [max(len(str(r[i])) for r in data) for i in range(len(header))]
+    for row in data:
+        print("  ".join(str(c).ljust(widths[i]) for i, c in enumerate(row)).rstrip())
 
 
 # ------------------------------------------------------------------- commands
@@ -82,15 +99,117 @@ def cmd_add(args):
     return EXIT_OK
 
 
-def cmd_check(args):
-    term = (args.term or "").strip()
-    if not term:
-        return _needs("missing_term")
-    result = api.call("check", term=term)
-    if not result["exists"]:
-        _emit({"ok": True, "exists": False, "key": result["key"]})
+def _validate(items):
+    """Every row needs a term, a meaning_vi and a context or source url."""
+    valid, invalid = [], []
+    for item in items:
+        if not isinstance(item, dict):
+            invalid.append({"term": "", "missing": ["row"]})
+            continue
+        term = str(item.get("term") or "").strip()
+        missing = []
+        if not term:
+            missing.append("term")
+        if not str(item.get("meaning_vi") or "").strip():
+            missing.append("meaning_vi")
+        if not str(item.get("context_note") or "").strip() and not str(item.get("source_url") or "").strip():
+            missing.append("context_note|source_url")
+        if missing:
+            invalid.append({"term": term, "missing": missing})
+        else:
+            valid.append(dict(item, term=term))
+    return valid, invalid
+
+
+def _load_items(path):
+    raw = sys.stdin.read() if path == "-" else open(path, encoding="utf-8").read()
+    data = json.loads(raw)
+    if isinstance(data, dict):
+        data = data.get("items", [])
+    if not isinstance(data, list):
+        raise ValueError("expected a JSON array of rows")
+    return data
+
+
+def _import_rows(items):
+    created, duplicates, errors = [], [], []
+    for start in range(0, len(items), BATCH):
+        result = api.call("append_many", items=items[start:start + BATCH])
+        created += result.get("created", [])
+        duplicates += result.get("duplicates", [])
+        errors += result.get("errors", [])
+    return created, duplicates, errors
+
+
+def cmd_import(args):
+    try:
+        items = _load_items(args.file)
+    except (OSError, ValueError) as err:
+        return _needs("bad_input", detail=str(err))
+
+    valid, invalid = _validate(items)
+    if invalid:
+        return _needs("invalid_rows", invalid=invalid,
+                      hint="Each row needs term, meaning_vi and context_note or source_url.")
+
+    if args.dry_run:
+        known = set(api.call("keys").get("keys", []))
+        rows, new = [], 0
+        for item in valid:
+            is_new = normalize_key(item["term"]) not in known
+            new += 1 if is_new else 0
+            rows.append([item["term"], item.get("type", ""), item.get("meaning_vi", ""),
+                         "mới" if is_new else "đã có"])
+        if args.json:
+            _emit({"ok": True, "dry_run": True, "new": new,
+                   "existing": len(valid) - new, "rows": rows})
+        else:
+            _table(["term", "loại", "nghĩa", "kết quả"], rows)
+            print(f"dry-run: {new} mới, {len(valid) - new} đã có — chưa ghi gì")
         return EXIT_OK
-    _emit({"ok": True, "exists": True, **_summary(result["row"])})
+
+    created, duplicates, errors = _import_rows(valid)
+
+    if args.json:
+        _emit({"ok": True, "counts": {"created": len(created), "duplicates": len(duplicates),
+                                      "errors": len(errors)},
+               "created": created, "duplicates": duplicates, "errors": errors})
+        return EXIT_OK if not errors else EXIT_NEEDS
+
+    meanings = {item["term"]: item.get("meaning_vi", "") for item in valid}
+    types = {item["term"]: item.get("type", "") for item in valid}
+    rows = [[c["term"], types.get(c["term"], ""), meanings.get(c["term"], ""), "mới"]
+            for c in created]
+    rows += [[d["term"], types.get(d["term"], ""), d.get("meaning_vi", ""),
+              f"đã có (gặp lần {d.get('lookup_count', '')})"] for d in duplicates]
+    rows += [[e.get("term", ""), "", e.get("error", ""), "lỗi"] for e in errors]
+    _table(["term", "loại", "nghĩa", "kết quả"], rows)
+    print(f"{len(created)} mới · {len(duplicates)} đã có · {len(errors)} lỗi")
+    return EXIT_OK if not errors else EXIT_NEEDS
+
+
+def cmd_check(args):
+    results = []
+    for term in args.terms:
+        result = api.call("check", term=term.strip())
+        if not result["exists"]:
+            results.append({"term": term, "exists": False, "key": result["key"]})
+        else:
+            results.append({"exists": True, **_summary(result["row"])})
+    if len(results) == 1:
+        _emit({"ok": True, **results[0]})
+    else:
+        _emit({"ok": True, "count": len(results), "results": results})
+    return EXIT_OK
+
+
+def cmd_keys(args):
+    result = api.call("keys")
+    if args.plain:
+        for key in result.get("keys", []):
+            print(key)
+        return EXIT_OK
+    _emit(result)
     return EXIT_OK
 
 
@@ -101,24 +220,9 @@ def cmd_list(args):
     if args.json:
         _emit({"ok": True, "count": len(rows), "rows": [_summary(r) for r in rows]})
         return EXIT_OK
-
-    if not rows:
-        print("(no terms)")
-        return EXIT_OK
-
-    table = [["term", "ipa", "meaning_vi", "status", "domain"]]
-    for row in rows:
-        meaning = str(row.get("meaning_vi", ""))
-        table.append([
-            str(row.get("term", "")),
-            str(row.get("ipa", "")),
-            meaning if len(meaning) <= 55 else meaning[:52] + "...",
-            str(row.get("status", "")),
-            str(row.get("domain", "")),
-        ])
-    widths = [max(len(r[i]) for r in table) for i in range(len(table[0]))]
-    for row in table:
-        print("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip())
+    _table(["term", "ipa", "meaning_vi", "status", "domain"],
+           [[r.get("term", ""), r.get("ipa", ""), _clip(r.get("meaning_vi", "")),
+             r.get("status", ""), r.get("domain", "")] for r in rows])
     return EXIT_OK
 
 
@@ -145,10 +249,10 @@ def build_parser():
     parser = argparse.ArgumentParser(prog="vocab", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    add = sub.add_parser("add", help="save a term/phrase (dedupes on the normalized term)")
+    add = sub.add_parser("add", help="save one term (dedupes on the normalized term)")
     add.add_argument("term", nargs="?", help="word or phrase")
     add.add_argument("--term")
-    add.add_argument("--meaning-vi", required=False, help="meaning in the current context")
+    add.add_argument("--meaning-vi", help="meaning in the current context")
     add.add_argument("--context", help="the sentence/paragraph it came from")
     add.add_argument("--type", choices=TYPES)
     add.add_argument("--cefr", help="A1..C2 (optional)")
@@ -164,9 +268,19 @@ def build_parser():
     add.add_argument("--status", choices=STATUSES)
     add.set_defaults(func=cmd_add)
 
+    imp = sub.add_parser("import", help="append a JSON array of rows (agent path)")
+    imp.add_argument("--file", "-f", default="-", help="path, or - for stdin (default)")
+    imp.add_argument("--dry-run", action="store_true", help="show new/existing, write nothing")
+    imp.add_argument("--json", action="store_true")
+    imp.set_defaults(func=cmd_import)
+
     check = sub.add_parser("check", help="does this term already exist?")
-    check.add_argument("term")
+    check.add_argument("terms", nargs="+")
     check.set_defaults(func=cmd_check)
+
+    keys = sub.add_parser("keys", help="list every saved key (cheap pre-filter)")
+    keys.add_argument("--plain", action="store_true")
+    keys.set_defaults(func=cmd_keys)
 
     lst = sub.add_parser("list", help="browse saved terms")
     lst.add_argument("--status", choices=STATUSES)
@@ -191,5 +305,9 @@ def main(argv=None):
     try:
         return args.func(args)
     except api.ApiError as err:
-        _emit({"ok": False, "error": str(err), "detail": err.payload})
+        payload = {"ok": False, "error": str(err), "detail": err.payload}
+        if str(err) == "unknown_op":
+            payload["hint"] = ("endpoint is running an older Code.gs — paste it again and "
+                               "deploy a new version (Manage deployments → Edit)")
+        _emit(payload)
         return EXIT_API
