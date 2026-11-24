@@ -183,8 +183,7 @@ Trong Sheet tạo 4 tab, dán công thức vào ô A1:
 
 **Tab `Shuffle`** — 10 flashcard ngẫu nhiên (term, IPA, nghĩa):
 ```
-=IFERROR(LET(d,FILTER(terms!A2:V,terms!R2:R<>"known"),
-  ARRAY_CONSTRAIN(CHOOSECOLS(SORT({d,RANDARRAY(ROWS(d))},23,FALSE),3,8,9),10,3)),"no terms yet")
+=IFERROR(LET(d,FILTER(terms!A2:V,terms!R2:R<>"known"),ARRAY_CONSTRAIN(CHOOSECOLS(SORT(HSTACK(d,RANDARRAY(ROWS(d))),23,FALSE),3,8,9),10,3)),"no terms yet")
 ```
 `RANDARRAY` là volatile → tab này xáo lại mỗi khi sheet tính lại; muốn xáo tay thì
 sửa 1 ô trống bất kỳ. Ở `Shuffle`, che cột nghĩa (cột C) nếu muốn tự nhớ trước.
@@ -204,6 +203,9 @@ Hai tab này dựa vào cột `key` sau chuẩn hoá: `high-stakes` nằm ở `W
 
 **Dropdown cho cột `status`** (R2:R): Data → Data validation → List of items →
 `new, learning, known`.
+
+> Công thức trên dùng `,` làm dấu ngăn cách tham số (locale mặc định). Nếu Sheet của bạn
+> ở locale dùng `;` (vi_VN), đổi **mọi** `,` trong các công thức trên thành `;`.
 
 ## Bảo mật
 
