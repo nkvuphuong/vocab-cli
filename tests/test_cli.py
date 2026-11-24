@@ -267,6 +267,25 @@ class T5Import(unittest.TestCase):
         self.assertEqual(json.loads(out)["invalid"][0]["missing"], ["context_note|source_url"])
         self.assertEqual(fake.calls, [])
 
+    def test_rejects_word_type_that_contains_a_space(self):
+        fake = ImportFake()
+        argv, path = import_args([{"term": "heavy rain", "meaning_vi": "mưa to",
+                                   "type": "word", "context_note": "Heavy rain hit the coast."}])
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        self.assertEqual(json.loads(out)["invalid"][0]["missing"], ["type"])
+        self.assertEqual(fake.calls, [])
+
+    def test_allows_tech_term_with_a_space(self):
+        fake = ImportFake()
+        argv, path = import_args([{"term": "run cost", "meaning_vi": "chi phí một lượt chạy",
+                                   "type": "tech_term", "context_note": "Add up the run cost."}])
+        self._tmp = [path]
+        code, _, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0]["op"], "append_many")
+
     def test_dry_run_writes_nothing(self):
         fake = ImportFake(existing=["drift"])
         argv, path = import_args(ROWS, "--dry-run")

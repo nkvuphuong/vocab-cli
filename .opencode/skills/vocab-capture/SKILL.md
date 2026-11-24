@@ -103,6 +103,22 @@ vocab import --file /tmp/vocab.json
 
 CLI tự chia lô 50 dòng, dedupe theo `key` (trùng → `lookup_count+1`, không tạo dòng mới).
 
+### Chọn `type`
+
+| type | Tiêu chí | Ví dụ |
+|---|---|---|
+| `word` | 1 chữ, **không** thuộc ngôn ngữ chuyên ngành | `narrow`, `polish` |
+| `abbrev` | viết tắt | `CI` |
+| `phrasal_verb` | động từ + tiểu từ, nghĩa đổi | `back up`, `vouch for` |
+| `idiom` | nghĩa **không** suy ra được chút nào từ các phần | `at any price` |
+| `collocation` | cụm **động từ** + bổ ngữ, động từ mang nghĩa ẩn dụ/cố định | `go green`, `take ownership` |
+| `phrase` | cụm **danh từ** cố định, không phải thuật ngữ ngành | `accuracy floor`, `outside knowledge` |
+| `tech_term` | thuật ngữ ngành, **1 chữ hoặc nhiều chữ** đều được | `rubric`, `run cost` |
+
+Trục phân biệt: đầu cụm là **động từ** → `collocation`; là **danh từ** và không phải jargon → `phrase`;
+có mặt trong ngôn ngữ chuyên ngành → `tech_term` thắng `word`/`phrase`. `word`/`abbrev` chứa
+dấu cách sẽ bị CLI từ chối.
+
 Tuỳ chọn:
 - `vocab import --file rows.json --dry-run` — xem trước, không ghi.
 - `vocab import --file - --json` — đọc stdin, in JSON cho máy.

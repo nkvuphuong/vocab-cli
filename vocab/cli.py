@@ -114,6 +114,8 @@ def _validate(items):
             missing.append("meaning_vi")
         if not str(item.get("context_note") or "").strip() and not str(item.get("source_url") or "").strip():
             missing.append("context_note|source_url")
+        if item.get("type") in ("word", "abbrev") and " " in normalize_key(term):
+            missing.append("type")  # a `word` with a space is a phrase; keep the type honest
         if missing:
             invalid.append({"term": term, "missing": missing})
         else:
@@ -150,7 +152,8 @@ def cmd_import(args):
     valid, invalid = _validate(items)
     if invalid:
         return _needs("invalid_rows", invalid=invalid,
-                      hint="Each row needs term, meaning_vi and context_note or source_url.")
+                      hint="Each row needs term, meaning_vi and context_note or source_url; "
+                           "type word/abbrev must be a single word.")
 
     if args.dry_run:
         known = set(api.call("keys").get("keys", []))
