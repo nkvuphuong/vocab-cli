@@ -89,6 +89,7 @@ vocab list --status new --domain evals --limit 10
 vocab list --json
 vocab keys --plain
 vocab mark drift --status learning
+vocab update --file glosses.json --dry-run
 vocab delete "block a merge" "narrow the gap"
 vocab delete "block a merge" --dry-run
 ```
@@ -103,6 +104,9 @@ vocab delete "block a merge" --dry-run
 - `mark` — đổi trạng thái ôn tập: `new` → `learning` → `known`.
 - `delete` — xoá hẳn dòng (không hoàn tác được): `vocab delete "block a merge"`,
   hoặc `--dry-run` để xem trước. Key không thấy → exit 2, không xoá gì.
+- `update` — sửa field của dòng đã có, theo `key`: `vocab update --file rows.json`
+  (mỗi dòng `{"term": "...", "<field>": "..."}`), `--dry-run` để xem trước. `import`
+  không cập nhật field khi trùng key, nên backfill phải dùng lệnh này.
 - `add` — lưu đúng 1 từ bằng cờ (`--meaning-vi`, `--context`, …); vẫn dùng được nhưng
   agent dùng `import` là chính.
 
@@ -129,13 +133,16 @@ Ví dụ JSON cho `import`:
 
 ## Cột trong sheet
 
-`id key term type cefr pos domain ipa meaning_vi meaning_en example example_type
-context_note source_type source_url source_title status lookup_count last_seen_at
-created_at updated_at` → A…U.
+`id key term type cefr pos domain ipa meaning_short meaning_vi meaning_en example
+example_type context_note source_type source_url source_title status lookup_count
+last_seen_at created_at updated_at` → A…V.
 
 - `key` = term đã chuẩn hoá (lowercase, gộp space, bỏ dấu câu hai đầu) — **dedupe theo cột này**.
+- `meaning_short` = gloss 1–4 từ để quét nhanh (tab `Words`/`Phrases` và `vocab list` hiện cột
+  này); `meaning_vi` = nghĩa đầy đủ theo ngữ cảnh.
 - Gặp lại từ cũ: không thêm dòng, chỉ `lookup_count + 1` và cập nhật `last_seen_at`.
-- Server đọc header ở dòng 1 nên **đổi thứ tự cột vẫn được**; đừng đổi tên header,
+- **Thứ tự cột trong Sheet phải khớp `HEADERS`** vì `append` ghi theo vị trí; đọc/ghi một ô
+  thì theo tên header. Chèn cột phải sửa Sheet và `HEADERS` cùng lúc. Đừng đổi tên header,
   đừng xoá dòng (xoá thì `mark` báo `not_found`, không hỏng gì khác).
 
 ## Xem lại trên điện thoại (M4)
@@ -144,31 +151,31 @@ Trong Sheet tạo 4 tab, dán công thức vào ô A1:
 
 **Tab `Review`** — từ chưa thuộc, mới gặp gần đây trước:
 ```
-=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:U,terms!Q2:Q<>"known"),3,8,9,11,17,19),6,FALSE),"no terms yet")
+=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:V,terms!R2:R<>"known"),3,8,9,12,18,20),6,FALSE),"no terms yet")
 ```
 
 **Tab `Shuffle`** — 10 flashcard ngẫu nhiên (term, IPA, nghĩa):
 ```
-=IFERROR(LET(d,FILTER(terms!A2:U,terms!Q2:Q<>"known"),
-  ARRAY_CONSTRAIN(CHOOSECOLS(SORT({d,RANDARRAY(ROWS(d))},22,FALSE),3,8,9),10,3)),"no terms yet")
+=IFERROR(LET(d,FILTER(terms!A2:V,terms!R2:R<>"known"),
+  ARRAY_CONSTRAIN(CHOOSECOLS(SORT({d,RANDARRAY(ROWS(d))},23,FALSE),3,8,9),10,3)),"no terms yet")
 ```
 `RANDARRAY` là volatile → tab này xáo lại mỗi khi sheet tính lại; muốn xáo tay thì
 sửa 1 ô trống bất kỳ. Ở `Shuffle`, che cột nghĩa (cột C) nếu muốn tự nhớ trước.
 
 **Tab `Words`** — chỉ từ đơn (key không có dấu cách):
 ```
-=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:U,(terms!B2:B<>"")*ISERROR(FIND(" ",terms!B2:B))),3,8,9,4),1,TRUE),"no terms yet")
+=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:V,(terms!B2:B<>"")*ISERROR(FIND(" ",terms!B2:B))),3,8,9,4),1,TRUE),"no terms yet")
 ```
 
 **Tab `Phrases`** — chỉ cụm từ (key có dấu cách):
 ```
-=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:U,ISNUMBER(FIND(" ",terms!B2:B))),3,8,9,4),1,TRUE),"no terms yet")
+=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:V,ISNUMBER(FIND(" ",terms!B2:B))),3,8,9,4),1,TRUE),"no terms yet")
 ```
 Hai tab này dựa vào cột `key` sau chuẩn hoá: `high-stakes` nằm ở `Words` (một từ ghép),
 `back up` / `at any price` nằm ở `Phrases`. Đây là **view**, không phải nơi lưu — sửa
 `status` bằng `vocab mark`, đừng sửa trong 2 tab này.
 
-**Dropdown cho cột `status`** (Q2:Q): Data → Data validation → List of items →
+**Dropdown cho cột `status`** (R2:R): Data → Data validation → List of items →
 `new, learning, known`.
 
 ## Bảo mật

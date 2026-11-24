@@ -16,8 +16,12 @@ TYPES = ["word", "phrase", "idiom", "phrasal_verb", "collocation", "abbrev", "te
 EXAMPLE_TYPES = ["source", "generated"]
 SOURCE_TYPES = ["url", "text", "term"]
 
-SUMMARY_FIELDS = ["term", "key", "type", "cefr", "domain", "ipa", "meaning_vi", "status",
-                  "example", "source_url", "id"]
+SUMMARY_FIELDS = ["term", "key", "type", "cefr", "domain", "ipa", "meaning_short",
+                  "meaning_vi", "status", "example", "source_url", "id"]
+
+WRITABLE = ["type", "cefr", "pos", "domain", "ipa", "meaning_short", "meaning_vi",
+            "meaning_en", "example", "example_type", "context_note", "source_type",
+            "source_url", "source_title", "status"]
 
 BATCH = 50  # must match MAX_BATCH in apps-script/Code.gs
 
@@ -77,8 +81,8 @@ def cmd_add(args):
         "source_url": args.source_url or "",
         "source_title": args.source_title or "",
     }
-    for name in ("type", "cefr", "pos", "domain", "ipa", "meaning_en",
-                 "example", "example_type", "status"):
+    for name in ("type", "cefr", "pos", "domain", "ipa", "meaning_short", "meaning_vi",
+                 "meaning_en", "example", "example_type", "status"):
         value = getattr(args, name)
         if value:
             row[name] = value
@@ -223,10 +227,55 @@ def cmd_list(args):
     if args.json:
         _emit({"ok": True, "count": len(rows), "rows": [_summary(r) for r in rows]})
         return EXIT_OK
-    _table(["term", "ipa", "meaning_vi", "status", "domain"],
-           [[r.get("term", ""), r.get("ipa", ""), _clip(r.get("meaning_vi", "")),
+    _table(["term", "ipa", "nghĩa", "status", "domain"],
+           [[r.get("term", ""), r.get("ipa", ""),
+             _clip(r.get("meaning_short") or r.get("meaning_vi", "")),
              r.get("status", ""), r.get("domain", "")] for r in rows])
     return EXIT_OK
+
+
+def cmd_update(args):
+    """Patches existing rows by key. Used to backfill columns like meaning_short."""
+    try:
+        items = _load_items(args.file)
+    except (OSError, ValueError) as err:
+        return _needs("bad_input", detail=str(err))
+
+    rows, changed, failed = [], 0, 0
+    for item in items:
+        if not isinstance(item, dict):
+            rows.append(["", "", "row không phải object"])
+            failed += 1
+            continue
+        term = str(item.get("term") or item.get("key") or "").strip()
+        patch = {k: item[k] for k in WRITABLE if k in item and k != "term"}
+        if not term or not patch:
+            rows.append([term, "", "thiếu term hoặc không có field nào để sửa"])
+            failed += 1
+            continue
+        fields = _clip(", ".join(f"{k}={v}" for k, v in patch.items()), 50)
+        if args.dry_run:
+            rows.append([term, fields, "sẽ sửa"])
+            changed += 1
+            continue
+        try:
+            result = api.call("update", key=normalize_key(term), patch=patch)
+        except api.ApiError as err:
+            if str(err) != "not_found":
+                raise
+            rows.append([term, fields, "không thấy"])
+            failed += 1
+            continue
+        rows.append([result["row"].get("term", term), fields, "đã sửa"])
+        changed += 1
+
+    if args.json:
+        _emit({"ok": not failed, "dry_run": args.dry_run, "changed": changed,
+               "failed": failed, "rows": rows})
+    else:
+        _table(["term", "sửa gì", "kết quả"], rows)
+        print(f"{changed} {'sẽ sửa' if args.dry_run else 'đã sửa'} · {failed} lỗi")
+    return EXIT_OK if not failed else EXIT_NEEDS
 
 
 def cmd_mark(args):
@@ -290,6 +339,7 @@ def build_parser():
     add = sub.add_parser("add", help="save one term (dedupes on the normalized term)")
     add.add_argument("term", nargs="?", help="word or phrase")
     add.add_argument("--term")
+    add.add_argument("--meaning-short", help="1-4 word gloss; what `list` and the tabs show")
     add.add_argument("--meaning-vi", help="meaning in the current context")
     add.add_argument("--context", help="the sentence/paragraph it came from")
     add.add_argument("--type", choices=TYPES)
@@ -326,6 +376,12 @@ def build_parser():
     lst.add_argument("--limit", type=int, default=20)
     lst.add_argument("--json", action="store_true")
     lst.set_defaults(func=cmd_list)
+
+    upd = sub.add_parser("update", help="patch fields of existing rows (backfill)")
+    upd.add_argument("--file", "-f", default="-", help="path, or - for stdin (default)")
+    upd.add_argument("--dry-run", action="store_true", help="show the patches, write nothing")
+    upd.add_argument("--json", action="store_true")
+    upd.set_defaults(func=cmd_update)
 
     mark = sub.add_parser("mark", help="set review status")
     mark.add_argument("term")

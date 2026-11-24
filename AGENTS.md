@@ -22,8 +22,11 @@ Deploy → Manage deployments → Edit → **New version**.
 
 - **Không bao giờ** đưa token/endpoint vào repo hay vào lệnh shell. Config ở
   `~/.config/vocab-cli/config.json` (600, ngoài repo).
-- `HEADERS` là hợp đồng với Sheet: chỉ **thêm cột ở cuối**, không đổi tên/xoá cột
-  (server đọc header dòng 1, dữ liệu cũ vẫn phải đọc được).
+- `HEADERS` là hợp đồng với Sheet: **thứ tự trong `HEADERS` phải khớp thứ tự cột thật**
+  (`append`/`append_many` ghi theo vị trí; đọc và ghi một ô thì theo tên). Chèn hoặc đổi
+  thứ tự cột phải sửa Sheet và `HEADERS` cùng lúc. Không đổi tên cột.
+- `meaning_short` (gloss 1–4 từ) đứng ngay trước `meaning_vi` (nghĩa đầy đủ). Cả hai đều
+  do agent soạn; `meaning_short` là cột người đọc quét nhanh.
 - `normalizeKey()` (GAS) và `normalize_key()` (`vocab/normalize.py`) là bản sao của
   nhau — sửa cái này phải sửa cái kia và cập nhật `selftest()` + `T1Normalize`.
 - `MAX_BATCH` (GAS) và `BATCH` (`vocab/cli.py`) phải bằng nhau.

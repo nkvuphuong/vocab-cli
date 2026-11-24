@@ -77,6 +77,7 @@ Mỗi phần tử:
 | Field | Luật |
 |---|---|
 | `term` | dạng gốc như trong tài liệu |
+| `meaning_short` | gloss **1–4 từ**, không giải thích, không ngoặc (`accuracy floor` → `ngưỡng sàn`); đây là cột người dùng quét nhanh — **luôn điền** |
 | `meaning_vi` | nghĩa **theo ngữ cảnh này**, ≤20 từ, nêu sắc thái nếu cần |
 | `type` | `tech_term` (jargon IT) · `word` · `phrase` · `collocation` · `idiom` · `phrasal_verb` · `abbrev` |
 | `cefr` | chỉ điền khi chắc; không chắc thì **bỏ trống** |
@@ -90,7 +91,7 @@ Mỗi phần tử:
 ```bash
 cat > /tmp/vocab.json <<'JSON'
 [
-  {"term": "accuracy floor", "meaning_vi": "ngưỡng sàn độ chính xác tối thiểu phải đạt",
+  {"term": "accuracy floor", "meaning_short": "ngưỡng sàn", "meaning_vi": "ngưỡng sàn độ chính xác tối thiểu phải đạt",
    "type": "phrase", "cefr": "C1", "domain": "evals",
    "example": "Set an accuracy floor from what one wrong answer would cost you.",
    "example_type": "source",

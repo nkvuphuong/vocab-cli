@@ -9,18 +9,18 @@
 const SHEET_NAME = 'terms';
 
 const HEADERS = [
-  'id', 'key', 'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_vi',
-  'meaning_en', 'example', 'example_type', 'context_note', 'source_type',
-  'source_url', 'source_title', 'status', 'lookup_count', 'last_seen_at',
-  'created_at', 'updated_at',
+  'id', 'key', 'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short',
+  'meaning_vi', 'meaning_en', 'example', 'example_type', 'context_note',
+  'source_type', 'source_url', 'source_title', 'status', 'lookup_count',
+  'last_seen_at', 'created_at', 'updated_at',
 ];
 
 const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'delete', 'list'];
 const READ_ONLY_OPS = ['ping', 'check', 'keys', 'list'];
 const WRITABLE = [
-  'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_vi', 'meaning_en',
-  'example', 'example_type', 'context_note', 'source_type', 'source_url',
-  'source_title', 'status',
+  'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short', 'meaning_vi',
+  'meaning_en', 'example', 'example_type', 'context_note', 'source_type',
+  'source_url', 'source_title', 'status',
 ];
 
 // shortcut: CacheService caps TTL at 6h, so the daily cap resets every ~6h.

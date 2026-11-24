@@ -191,6 +191,12 @@ class ImportFake:
         raise AssertionError(f"unexpected op {op}")
 
 
+def update_args(rows, *extra):
+    argv, path = import_args(rows, *extra)
+    argv[0] = "update"
+    return argv, path
+
+
 def import_args(rows, *extra):
     handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
     json.dump(rows, handle)
@@ -339,6 +345,25 @@ class DeleteFake:
         raise AssertionError(f"unexpected op {op}")
 
 
+class UpdateFake:
+    """Simulates the endpoint's update op: patches by key, not_found otherwise."""
+
+    def __init__(self, existing=("drift",)):
+        self.calls = []
+        self.existing = {k: dict(ROW, key=k, term=k) for k in existing}
+
+    def __call__(self, op, timeout=None, **payload):
+        self.calls.append({"op": op, **payload})
+        if op == "update":
+            key = payload["key"]
+            if key not in self.existing:
+                raise api_module.ApiError("not_found", {"ok": False, "error": "not_found"})
+            self.existing[key].update(payload["patch"])
+            return {"ok": True, "op": "update", "key": key, "id": "id-1",
+                    "row": dict(self.existing[key])}
+        raise AssertionError(f"unexpected op {op}")
+
+
 class T7Delete(unittest.TestCase):
 
     def test_deletes_and_asks_for_confirm(self):
@@ -371,6 +396,67 @@ class T7Delete(unittest.TestCase):
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual(len([c for c in fake.calls if c["op"] == "delete"]), 2)
         self.assertEqual(fake.existing, {})
+
+
+class T8MeaningShort(unittest.TestCase):
+
+    def test_add_sends_meaning_short(self):
+        fake = added()
+        code, out, _ = run(["add", "drift", "--meaning-vi", "sự lệch chất lượng",
+                            "--context", "Catch drift", "--meaning-short", "lệch"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0]["row"]["meaning_short"], "lệch")
+
+    def test_list_prefers_short_meaning_and_falls_back(self):
+        short = dict(ROW, meaning_short="lệch")
+        fake = FakeApi(list={"ok": True, "count": 2, "rows": [short, dict(ROW, term="rubric")]})
+        code, out, _ = run(["list"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertIn("lệch", out)
+        self.assertIn(ROW["meaning_vi"], out)  # fallback when meaning_short is empty
+
+
+class T9Update(unittest.TestCase):
+
+    def tearDown(self):
+        for arg in list(getattr(self, "_tmp", [])):
+            os.unlink(arg)
+
+    def test_patches_by_normalized_key(self):
+        fake = UpdateFake()
+        argv, path = update_args([{"term": "  Drift. ", "meaning_short": "lệch"}])
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0]["op"], "update")
+        self.assertEqual(fake.calls[0]["key"], "drift")
+        self.assertEqual(fake.calls[0]["patch"], {"meaning_short": "lệch"})
+        self.assertIn("1 đã sửa · 0 lỗi", out)
+
+    def test_missing_key_exits_needs(self):
+        fake = UpdateFake()
+        argv, path = update_args([{"term": "nope", "meaning_short": "x"}])
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        self.assertIn("không thấy", out)
+
+    def test_row_without_patch_fields_is_rejected(self):
+        fake = UpdateFake()
+        argv, path = update_args([{"term": "drift", "term_typo": "x"}])
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        self.assertEqual(fake.calls, [])
+
+    def test_dry_run_writes_nothing(self):
+        fake = UpdateFake()
+        argv, path = update_args([{"term": "drift", "meaning_short": "lệch"}], "--dry-run")
+        self._tmp = [path]
+        code, out, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls, [])
+        self.assertIn("sẽ sửa", out)
 
 
 if __name__ == "__main__":

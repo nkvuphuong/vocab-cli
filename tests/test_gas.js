@@ -100,9 +100,10 @@ function post(api, body) {
   return JSON.parse(api.doPost({ postData: { contents: JSON.stringify(body) } }).text);
 }
 
-const HEADER = ['id', 'key', 'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_vi',
-  'meaning_en', 'example', 'example_type', 'context_note', 'source_type', 'source_url',
-  'source_title', 'status', 'lookup_count', 'last_seen_at', 'created_at', 'updated_at'];
+const HEADER = ['id', 'key', 'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short',
+  'meaning_vi', 'meaning_en', 'example', 'example_type', 'context_note', 'source_type',
+  'source_url', 'source_title', 'status', 'lookup_count', 'last_seen_at', 'created_at',
+  'updated_at'];
 const HEAD = [HEADER];
 const row = (term, meaning) => ({ term: term, meaning_vi: meaning, context_note: 'a sentence' });
 
@@ -117,7 +118,7 @@ check('appendMany writes all new rows with one batch', () => {
   eq(res.duplicates.length, 0, 'duplicates');
   eq(data.length, 3, 'sheet rows');
   eq(data[1][1], 'drift', 'key col');
-  eq(data[1][16], 'new', 'status col');
+  eq(data[1][17], 'new', 'status col');
 });
 
 check('appendMany dedupes against existing rows and bumps lookup_count', () => {
@@ -224,9 +225,27 @@ check('list returns newest first by date, not by weekday name', () => {
   // "Wed" first, which is the older row. Only real date math gets this right.
   const { api, data } = makeApi(HEAD, 'tok');
   post(api, { token: 'tok', op: 'append_many', items: [row('older', 'cũ'), row('newer', 'mới')] });
-  data[1][18] = new Date('2026-11-18T10:00:00Z');
-  data[2][18] = new Date('2026-11-19T10:00:00Z');
+  data[1][19] = new Date('2026-11-18T10:00:00Z');
+  data[2][19] = new Date('2026-11-19T10:00:00Z');
   eq(post(api, { token: 'tok', op: 'list' }).rows.map((r) => r.term), ['newer', 'older']);
+});
+
+check('meaning_short goes to its own column, before meaning_vi', () => {
+  const { api, data } = makeApi(HEAD, 'tok');
+  post(api, { token: 'tok', op: 'append_many', items: [{ term: 'drift', meaning_short: 'lệch', meaning_vi: 'sự lệch chất lượng theo thời gian', context_note: 'x' }] });
+  eq(data[0][8], 'meaning_short', 'header col I');
+  eq(data[1][8], 'lệch', 'short meaning col I');
+  eq(data[1][9], 'sự lệch chất lượng theo thời gian', 'long meaning col J');
+  eq(post(api, { token: 'tok', op: 'list' }).rows[0].meaning_short, 'lệch', 'returned by list');
+});
+
+check('update can backfill meaning_short', () => {
+  const { api, data } = makeApi(HEAD, 'tok');
+  post(api, { token: 'tok', op: 'append_many', items: [row('drift', 'sự lệch chất lượng')] });
+  eq(data[1][8], '', 'empty before');
+  const res = post(api, { token: 'tok', op: 'update', key: 'drift', patch: { meaning_short: 'lệch' } });
+  eq(res.row.meaning_short, 'lệch', 'patch returned');
+  eq(data[1][8], 'lệch', 'written to column I');
 });
 
 console.log(failures ? '\n' + failures + ' FAILED' : '\nall passed');
