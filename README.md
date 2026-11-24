@@ -58,6 +58,8 @@ Nếu muốn đặt lệnh ở `/usr/local/bin` thì cần `sudo` — PATH là c
 
 ## Dùng
 
+Lưu một từ (dán nguyên khối, **không** kèm ghi chú `#` — zsh sẽ coi đó là argument):
+
 ```bash
 vocab add drift \
   --meaning-vi "sự lệch chất lượng model/output theo thời gian" \
@@ -67,12 +69,20 @@ vocab add drift \
   --example-type source \
   --source-url "https://academy.claude.com/courses/introduction-to-evals" \
   --source-title "Introduction to evals"
+```
 
-vocab check drift          # đã có chưa? in luôn nghĩa cũ
+Các lệnh còn lại, mỗi lệnh một dòng:
+
+```bash
+vocab check drift
 vocab list --status new --domain evals --limit 10
-vocab list --json          # cho agent đọc
+vocab list --json
 vocab mark drift --status learning
 ```
+
+`check` = đã có chưa (in luôn nghĩa cũ, exit 0 cả khi chưa có, xem `exists`).
+`list --json` = dạng máy đọc, cho agent.
+`mark` = đổi trạng thái ôn tập: `new` → `learning` → `known`.
 
 `add` **từ chối ghi** (exit `2`, JSON `{"needs_context": true}`) khi thiếu
 `--meaning-vi` hoặc thiếu cả `--context` lẫn `--source-url`. Đó là gate chống lưu
@@ -135,7 +145,7 @@ là xử lý xong.
 
 | Triệu chứng | Nguyên nhân |
 |---|---|
-| `ln: PATH: No such file or directory` | Dán kèm comment `#` khi gõ trong zsh: `#` chỉ là comment khi bật `setopt interactive_comments`. Chỉ dán phần lệnh. |
+| `ln: PATH: No such file or directory` | Dán kèm comment `#` khi gõ trong zsh: `#` chỉ là comment khi bật `setopt interactive_comments`. Triệu chứng khác của cùng lỗi: `zsh: no matches found: chưa?`, `vocab: error: unrecognized arguments: # ...`. Chỉ dán phần lệnh, không dán ghi chú cuối dòng. |
 | `CERTIFICATE_VERIFY_FAILED` | Bản Python tải từ python.org không có CA path. `vocab/api.py` dùng `certifi` nếu có; nếu vẫn lỗi thì chạy `/Applications/Python 3.13/Install Certificates.command`. |
 | `HTTP 405` hoặc HTML thay vì JSON | Apps Script trả 302 sang `script.googleusercontent.com` (chỉ nhận GET). Bản mới follow redirect bằng GET; nếu bạn tự viết `curl` thì dùng `curl -L` (không `-X POST`). |
 | `error: unauthorized` | token trong config khác `Script Properties.TOKEN`, hoặc chưa deploy lại sau khi sửa |
