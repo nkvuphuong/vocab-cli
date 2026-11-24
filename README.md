@@ -40,11 +40,18 @@ chmod 600 ~/.config/vocab-cli/config.json
 ```
 
 **5. Kiểm tra**
+Thêm `bin/` vào PATH (copy nguyên 3 dòng dưới, không dán kèm ghi chú — zsh không coi
+`#` là comment khi gõ tay, nó sẽ thành một lệnh lỗi):
+
 ```bash
-ln -sf "$PWD/bin/vocab" /usr/local/bin/vocab   # hoặc thêm $PWD/bin vào PATH
+echo 'export PATH="$HOME/Documents/dev/personal_projects/vocab-cli/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 vocab ping
-# { "ok": true, "op": "ping", "sheet": "terms", "rows": 0 }
 ```
+
+Kết quả đúng: `{ "ok": true, "op": "ping", "sheet": "terms", "rows": 0 }`
+
+Nếu muốn đặt lệnh ở `/usr/local/bin` thì cần `sudo` — PATH là cách gọn hơn.
 
 `TOKEN`/`ENDPOINT` cũng đọc được từ biến môi trường `VOCAB_TOKEN` / `VOCAB_ENDPOINT`
 (ưu tiên cao hơn file config — dùng khi chạy CI, đừng dùng khi không cần).
@@ -128,6 +135,9 @@ là xử lý xong.
 
 | Triệu chứng | Nguyên nhân |
 |---|---|
+| `ln: PATH: No such file or directory` | Dán kèm comment `#` khi gõ trong zsh: `#` chỉ là comment khi bật `setopt interactive_comments`. Chỉ dán phần lệnh. |
+| `CERTIFICATE_VERIFY_FAILED` | Bản Python tải từ python.org không có CA path. `vocab/api.py` dùng `certifi` nếu có; nếu vẫn lỗi thì chạy `/Applications/Python 3.13/Install Certificates.command`. |
+| `HTTP 405` hoặc HTML thay vì JSON | Apps Script trả 302 sang `script.googleusercontent.com` (chỉ nhận GET). Bản mới follow redirect bằng GET; nếu bạn tự viết `curl` thì dùng `curl -L` (không `-X POST`). |
 | `error: unauthorized` | token trong config khác `Script Properties.TOKEN`, hoặc chưa deploy lại sau khi sửa |
 | `error: missing_meaning_vi` | `add` gọi mà không có `--meaning-vi` (gate hoạt động đúng) |
 | HTML thay vì JSON, hoặc `HTTP 401` | deployment để access "Only myself" thay vì "Anyone" |

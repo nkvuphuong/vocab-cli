@@ -1,14 +1,25 @@
 """POST JSON to the Apps Script web app, following its 3xx redirect by hand.
 
-urllib turns a POST into a GET on 301/302, which would drop the body, so the
-redirect handler is disabled and the call is re-sent to the Location instead.
+Apps Script runs doPost on the first request, caches the output and answers 302 to
+script.googleusercontent.com/macros/echo, which only serves GET. So the body must
+NOT be re-sent: the redirect is followed with a plain GET (urllib's default
+POST->GET conversion would work too, but it also breaks on other redirect shapes).
 """
 
 import json
 import os
+import ssl
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+# python.org builds on macOS ship no CA path for OpenSSL; certifi already has one.
+try:
+    import certifi
+
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL_CONTEXT = ssl.create_default_context()
 
 CONFIG_PATH = Path(
     os.environ.get("VOCAB_CONFIG", "~/.config/vocab-cli/config.json")
@@ -49,7 +60,13 @@ def _post(url, body, timeout):
     req = urllib.request.Request(
         url, data=body, headers={"Content-Type": "application/json; charset=utf-8"}
     )
-    opener = urllib.request.build_opener(_NoRedirect)
+    return _send(req, timeout)
+
+
+def _send(req, timeout):
+    opener = urllib.request.build_opener(
+        _NoRedirect, urllib.request.HTTPSHandler(context=SSL_CONTEXT)
+    )
     try:
         with opener.open(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8")
@@ -58,19 +75,25 @@ def _post(url, body, timeout):
         if location and 300 <= err.code < 400:
             raise _Redirect(location)
         raise ApiError(f"HTTP {err.code}: {err.read()[:200]!r}") from None
+    except urllib.error.URLError as err:
+        raise ApiError(f"network error: {err.reason}") from None
 
 
 def call(op, timeout=None, **payload):
     cfg = load_config()
     body = json.dumps({"token": cfg["token"], "op": op, **payload}).encode()
-    url = cfg["endpoint"]
     text = None
+    req = urllib.request.Request(
+        cfg["endpoint"],
+        data=body,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
     for _ in range(4):
         try:
-            text = _post(url, body, timeout or cfg["timeout"])
+            text = _send(req, timeout or cfg["timeout"])
             break
         except _Redirect as redirect:
-            url = redirect.location
+            req = urllib.request.Request(redirect.location)  # GET, no body
     if text is None:
         raise ApiError("too many redirects")
 

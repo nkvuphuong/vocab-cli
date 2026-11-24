@@ -124,12 +124,19 @@ function appendRow(input) {
 
   if (existing) {
     const r = existing.rowIndex;
-    setCell(sheet, r, 'lookup_count', Number(existing.row.lookup_count || 0) + 1);
-    setCell(sheet, r, 'last_seen_at', new Date());
-    setCell(sheet, r, 'updated_at', new Date());
+    const count = Number(existing.row.lookup_count || 0) + 1;
+    const now = new Date();
+    setCell(sheet, r, 'lookup_count', count);
+    setCell(sheet, r, 'last_seen_at', now);
+    setCell(sheet, r, 'updated_at', now);
+    const merged = {};
+    HEADERS.forEach(function (h) { merged[h] = existing.row[h] === undefined ? '' : existing.row[h]; });
+    merged.lookup_count = count;
+    merged.last_seen_at = now;
+    merged.updated_at = now;
     return {
       ok: true, op: 'append', created: false, duplicate: true,
-      id: existing.row.id, row: existing.row,
+      id: existing.row.id, row: pick(merged),
     };
   }
 
