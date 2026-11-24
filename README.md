@@ -181,13 +181,14 @@ Trong Sheet tạo 4 tab, dán công thức vào ô A1:
 =IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:V,terms!R2:R<>"known"),3,8,9,12,18,20),6,FALSE),"no terms yet")
 ```
 
-**Tab `Shuffle`** — 10 từ gặp nhiều nhất (term, IPA, nghĩa ngắn, status):
+**Tab `Shuffle`** — 10 từ ngẫu nhiên, chỉ hiện từ tiếng Anh (tự nhớ nghĩa trước khi mở `terms`):
 ```
-=IFERROR(ARRAY_CONSTRAIN(CHOOSECOLS(SORT(FILTER(terms!A2:V,terms!R2:R<>"known"),19,FALSE),3,8,9,18),10,4),"no terms yet")
+=IFERROR(ARRAY_CONSTRAIN(CHOOSECOLS(SORT(FILTER(terms!A2:V,(terms!C2:C<>"")*(terms!R2:R<>"known")),RANDARRAY(ROWS(FILTER(terms!A2:V,(terms!C2:C<>"")*(terms!R2:R<>"known")))),TRUE),3),10,1),"no terms yet")
 ```
-`lookup_count` giảm dần, nên tab này đẩy lên những từ bạn đã gặp lại nhiều lần. Muốn ngẫu nhiên
-thì phải thêm cột random — `HSTACK` + `RANDARRAY` là cách gọn nhất, nhưng `HSTACK` ghép lệch
-số dòng sẽ làm cả khối ra `#REF!`, nên repo này không dùng.
+`SORT` nhận **mảng** làm khoá sắp xếp (ở đây là `RANDARRAY`), nên có thứ tự ngẫu nhiên mà không
+cần cột phụ. `RANDARRAY` là volatile → mỗi lần Sheet tính lại là bộ 10 từ đổi; muốn ghim thì
+copy → Paste special → Values. Muốn hiện thêm IPA/nghĩa thì đổi `3` thành `3,8,9` và `10,1`
+thành `10,3`.
 
 **Tab `Words`** — chỉ từ đơn (key không có dấu cách):
 ```
