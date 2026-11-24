@@ -4,13 +4,36 @@ Lưu từ/cụm từ tiếng Anh gặp khi đọc docs vào một Google Sheet *
 IPA, nghĩa theo ngữ cảnh và câu ví dụ. Không UI, không dependency, không API key LLM —
 phần "hiểu nghĩa" do agent trong phiên chat làm.
 
-```
-agent (chat) ──► bin/vocab ──HTTPS+token──► Apps Script ──► Google Sheet (Restricted)
-```
-
 - Sheet là nơi bạn **xem lại** (điện thoại/web), có tab `Review` + `Shuffle`.
 - `bin/vocab` chỉ là HTTP client ~200 dòng, stdlib, không giữ secret trong repo.
   (`certifi` là dependency **tuỳ chọn**, chỉ cần khi OpenSSL của Python không có CA path.)
+
+## Vì sao có repo này
+
+Mình đọc docs và khóa học tiếng Anh mỗi ngày. Từ mới gặp thì nhiều, nhưng chúng rơi rụng:
+ghi vào Notes thì không bao giờ mở lại, chép vào Anki thì công nhập nghĩa/IPA/ví dụ lớn hơn
+giá trị học, còn dán cả đoạn vào chat để hỏi nghĩa thì lần sau vẫn phải hỏi lại từ đầu.
+
+| Nỗi đau | Cách repo này xử lý |
+|---|---|
+| Nhập liệu thủ công (nghĩa, IPA, ví dụ) | Agent trong phiên chat tự trích từ và soạn hết; nó đã đọc nguồn nên nghĩa đúng ngữ cảnh |
+| Ghi chú rải rác, không ôn lại được | Một Google Sheet private là nơi lưu duy nhất; tab `Review`/`Shuffle`/`Words`/`Phrases` để ôn trên điện thoại |
+| Hạ tầng nặng cho một việc nhỏ | CLI Python stdlib + Apps Script: không DB, không OAuth, không API key LLM, không server |
+
+```mermaid
+flowchart LR
+    src["Nguồn<br/>URL · đoạn văn · 1 từ"] --> agent["Agent trong phiên chat"]
+    agent -->|"1. trích từ, soạn nghĩa + IPA + câu gốc"| cli["vocab import<br/>Python stdlib"]
+    cli -->|"2. dedupe theo key, chia lô 50<br/>HTTPS + token"| gas["Apps Script<br/>token · allowlist op · lock"]
+    gas -->|"3. ghi · sửa · xoá"| sheet[("Google Sheet private")]
+    sheet --> tabs["Tab Review · Shuffle · Words · Phrases"]
+    tabs -->|"4. ôn trên điện thoại"| you(["Bạn"])
+    you -->|"đọc nguồn mới, gặp lại từ cũ<br/>lookup_count + 1"| agent
+```
+
+Ý tưởng đến từ việc dùng chính các khóa học của Anthropic — nội dung dày thuật ngữ nhưng
+không có chỗ nào lưu lại từ mới gặp. Repo này là chỗ đó, với một nguyên tắc:
+**agent lo phần hiểu, Sheet lo phần nhớ, CLI chỉ là ống dẫn.**
 
 ## Cài đặt (làm 1 lần, ~10 phút)
 
