@@ -290,6 +290,38 @@ Quy tắc agent giữ:
 > Gõ đúng chính tả: agent không tự sửa `term` bạn đã gõ. Sửa lại thì bảo agent `update`,
 > đừng sửa tay cột `term` (cột `key` bên cạnh sẽ lệch và dedupe hỏng).
 
+## Tab glossary (tuỳ chọn)
+
+Nơi ghi lại **quyết định dịch** để agent không lặp lỗi cũ (`"chạy nền"` cho *asynchronously*,
+`"co giãn được"` cho *scalable*…). Không tạo cũng không sao — skill tự bỏ qua bước đọc.
+
+Tạo tab tên `glossary`, **không đặt header**, 3 cột:
+
+| Cột | Nội dung |
+|---|---|
+| A | term tiếng Anh — có thể là *họ từ* (`asynchronous`), không cần trùng key đã lưu |
+| B | gloss chuẩn; nhiều biến thể ngăn bằng ` · `, phổ biến nhất trước |
+| C | ghi chú: `không dùng …`, nguồn dịch sai, hoặc `bạn chốt` |
+
+Agent đọc tab này **trước khi** soạn gloss (`vocab sheet --name glossary --json`, chỉ đọc),
+nên nó là **luật** áp cho cả họ từ — khác `terms`, chỉ áp cho đúng từ đã lưu. Mỗi lần bạn sửa
+gloss của agent, ghi thêm một dòng vào đây.
+
+Dán 10 dòng này để bắt đầu (phân tách bằng tab):
+
+```
+asynchronously	bất đồng bộ · không đồng bộ	không dùng "chạy nền" (background)
+scalable	có thể mở rộng · mở rộng được	không dùng "co giãn được"
+illustration	minh hoạ · ví dụ minh hoạ	không dùng "ví dụ mẫu"
+hand-grade	chấm thủ công · chấm bằng tay	grade = chấm điểm, không phải phân loại
+accuracy floor	ngưỡng sàn · ngưỡng tối thiểu	Google dịch sai thành "tầng chính xác"
+labeled set	tập có nhãn · tập gán nhãn	Google dịch sai thành "bộ nhãn"
+structured outputs	đầu ra có cấu trúc	không dùng "ép trả JSON"
+cost you	khiến bạn trả giá	bạn chốt
+rubric	bảng tiêu chí · thang điểm
+edge case	trường hợp biên · ca biên
+```
+
 ## Bảo mật
 
 | Mối đe doạ | Chặn bằng |

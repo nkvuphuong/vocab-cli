@@ -43,6 +43,10 @@ Deploy → Manage deployments → Edit → **New version**.
   `vocab import` (`source_type: "term"`, `example_type: "generated"`). Từ mơ hồ thì **hỏi**,
   không đoán. Từ đã có trong `terms` thì skip. Sau khi import, hỏi user rồi mới
   `vocab clear-inbox <terms> --confirm` để dọn dòng đã xử lý; từ chưa lưu được giữ nguyên.
+- `glossary` (tuỳ chọn, user ghi): A = term EN (có thể là họ từ), B = gloss chuẩn (nhiều biến thể
+  ngăn ` · `), C = ghi chú/cấm kỵ. Agent **chỉ đọc** trước khi soạn gloss
+  (`vocab sheet --name glossary --json`), bỏ qua dòng header nếu có; không ghi, không xoá.
+  User sửa gloss thì thêm một dòng vào đây — đó là luật cho cả họ từ, mạnh hơn `terms`.
 - `HEADERS` là hợp đồng với Sheet: **thứ tự trong `HEADERS` phải khớp thứ tự cột thật**
   (`append`/`append_many` ghi theo vị trí; đọc và ghi một ô thì theo tên). Chèn hoặc đổi
   thứ tự cột phải sửa Sheet và `HEADERS` cùng lúc. Không đổi tên cột.

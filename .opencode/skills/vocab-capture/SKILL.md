@@ -127,6 +127,10 @@ Mỗi phần tử:
 vocab sheet --name glossary --json   # term (A) · answer = gloss chuẩn (B) · note (C)
 ```
 
+- Chỉ **đọc** tab này. Dòng 1 nếu là header (`term`/`gloss`/`note`) thì bỏ qua, đừng lưu nó.
+- Cột C là **luật**: `không dùng "chạy nền"` nghĩa là cấm gloss đó, không phải một biến thể.
+  Cột B mới là danh sách biến thể được dùng.
+
 - `meaning_short` là **từ điển** (gọi tên sự vật), `meaning_vi` là **giải thích theo ngữ cảnh**.
   Đừng đẩy định nghĩa lên `meaning_short`: `structured outputs` → `đầu ra có cấu trúc`, không phải `ép trả JSON`.
 - **Nhiều gloss là để user chọn, không phải để mình né chọn**: gloss đầu là cái mình khuyên,
