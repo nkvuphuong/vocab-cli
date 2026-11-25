@@ -307,9 +307,12 @@ Agent đọc tab này **trước khi** soạn gloss (`vocab sheet --name glossar
 nên nó là **luật** áp cho cả họ từ — khác `terms`, chỉ áp cho đúng từ đã lưu. Mỗi lần bạn sửa
 gloss của agent, ghi thêm một dòng vào đây.
 
-Dán 10 dòng này để bắt đầu (phân tách bằng tab):
+Dán 10 dòng này để bắt đầu, hoặc nhập thẳng `glossary.csv` ở repo
+(File → Import → Upload → *Insert new sheet*, dấu phân cách **Comma**). Header dòng 1 là tuỳ
+chọn — agent tự bỏ qua:
 
 ```
+term	gloss	note
 asynchronously	bất đồng bộ · không đồng bộ	không dùng "chạy nền" (background)
 scalable	có thể mở rộng · mở rộng được	không dùng "co giãn được"
 illustration	minh hoạ · ví dụ minh hoạ	không dùng "ví dụ mẫu"

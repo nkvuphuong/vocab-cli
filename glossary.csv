@@ -1,0 +1,11 @@
+term,gloss,note
+asynchronously,bất đồng bộ · không đồng bộ,"không dùng ""chạy nền"" (background)"
+scalable,có thể mở rộng · mở rộng được,"không dùng ""co giãn được"""
+illustration,minh hoạ · ví dụ minh hoạ,"không dùng ""ví dụ mẫu"""
+hand-grade,chấm thủ công · chấm bằng tay,grade = chấm điểm / không phải phân loại
+accuracy floor,ngưỡng sàn · ngưỡng tối thiểu,"Google dịch sai thành ""tầng chính xác"""
+labeled set,tập có nhãn · tập gán nhãn,"Google dịch sai thành ""bộ nhãn"""
+structured outputs,đầu ra có cấu trúc,"không dùng ""ép trả JSON"""
+cost you,khiến bạn trả giá,bạn chốt
+rubric,bảng tiêu chí · thang điểm,
+edge case,trường hợp biên · ca biên,
