@@ -34,9 +34,9 @@ gọi `<repo>/bin/vocab` — thêm `bin/` vào PATH mới gõ được `vocab`.
 **Lấy** (không giới hạn số lượng, lấy hết những gì đạt tiêu chí):
 
 1. Thuật ngữ IT/software xuất hiện trong ngữ cảnh kỹ thuật (`eval`, `drift`, `smoke test`,
-   `collocation`, `pull request`, `backport`).
-2. Từ/cụm **≥ B2** không phải từ vựng cơ bản hằng ngày (`set a floor`, `block a merge`,
-   `catch drift`, `from evidence`).
+   `collocation`, `backport`).
+2. Từ/cụm **≥ B2** không phải từ vựng cơ bản hằng ngày (`set a floor`, `catch drift`,
+   `trailing baseline`).
 3. Collocation / phrasal verb / idiom đáng học nguyên cụm, không tách rời.
 
 **Bỏ**:
@@ -47,10 +47,12 @@ gọi `<repo>/bin/vocab` — thêm `bin/` vào PATH mới gõ được `vocab`.
 - Số liệu, ngày tháng, đơn vị đo.
 - Từ mà nghĩa trong câu không khác gì nghĩa đen hiển nhiên (trừ khi là thuật ngữ).
 - Cụm mà nghĩa **cộng lại được** từ các từ đơn (`block a merge`, `narrow the gap`,
-  `domain expertise`, `task delegation`, `extraction prompt`). Chỉ lưu cụm khi nghĩa
-  **lệch** khỏi tổng các phần: idiom, phrasal verb, ẩn dụ/thuật ngữ (`accuracy floor`,
-  `pull request`, `live traffic`, `smoke eval`). Cụm cơ học thì lưu các **từ đơn** đáng
-  học bên trong nó (`expertise`, `awareness`, `evidence`).
+  `domain expertise`, `task delegation`, `extraction prompt`). Phép thử: dịch cụm bằng cách ghép nghĩa
+  **từng từ**; ra đúng nghĩa đang dùng thì cụm đó cơ học → chỉ lưu các **từ đơn** đáng học
+  bên trong (`evidence` từ `from evidence`, `deviation` từ `standard deviation`), và nếu
+  các mảnh đều A1–B1 thì bỏ luôn cụm (`pull request`, `branch protection rule`).
+- Cụm chỉ được giữ khi phép ghép **sai hoặc thiếu**: idiom, phrasal verb, ẩn dụ/thuật ngữ
+  (`accuracy floor`, `live traffic`, `smoke eval`, `catch drift`).
 
 Một tài liệu dài có thể ra 40–60 từ. Không cắt bớt cho tròn số; cũng đừng thêm từ rác
 cho đủ số lượng.
@@ -61,7 +63,7 @@ Chỉ hỏi khi **không có ngữ cảnh** hoặc ngữ cảnh không đủ đ�
 
 - User đưa một từ/cụm trần (`floor`, `run`, `issue`, `suite`).
 - Từ có ≥2 nghĩa thường gặp **và** câu trong tài liệu không phân biệt được.
-- Không rõ muốn lưu 1 từ hay cả cụm (`pull` vs `pull request`).
+- Không rõ muốn lưu 1 từ hay cả cụm (`drift` vs `catch drift`).
 
 Mẫu: đưa 2–4 option lấy từ chính tài liệu, kèm option mặc định.
 
@@ -77,7 +79,7 @@ Mỗi phần tử:
 | Field | Luật |
 |---|---|
 | `term` | dạng gốc như trong tài liệu |
-| `meaning_short` | gloss **1–4 từ**, không giải thích, không ngoặc (`accuracy floor` → `ngưỡng sàn`); đây là cột người dùng quét nhanh — **luôn điền** |
+| `meaning_short` | nghĩa Việt **1–4 từ**, khác hẳn `term`: cấm viết tắt/biến thể của chính `term` (`PR` cho `pull request`, `CI` cho `continuous integration`) và cấm calque từng chữ (`yêu cầu gộp mã`). Không nghĩ ra gloss thật → **xoá dòng**, đừng lưu gloss rỗng nghĩa. Đây là cột người dùng quét nhanh — **luôn điền** |
 | `meaning_vi` | nghĩa **theo ngữ cảnh này**, ≤20 từ, nêu sắc thái nếu cần |
 | `type` | `tech_term` (jargon IT) · `word` · `phrase` · `collocation` · `idiom` · `phrasal_verb` · `abbrev` |
 | `cefr` | chỉ điền khi chắc; không chắc thì **bỏ trống** |
@@ -114,7 +116,7 @@ CLI tự chia lô 50 dòng, dedupe theo `key` (trùng → `lookup_count+1`, khô
 | `idiom` | nghĩa **không** suy ra được chút nào từ các phần | `at any price` |
 | `collocation` | cụm **động từ** + bổ ngữ, động từ mang nghĩa ẩn dụ/cố định | `go green`, `take ownership` |
 | `phrase` | cụm **danh từ** cố định, không phải thuật ngữ ngành | `accuracy floor`, `outside knowledge` |
-| `tech_term` | thuật ngữ ngành, **1 chữ hoặc nhiều chữ** đều được | `rubric`, `run cost` |
+| `tech_term` | thuật ngữ ngành, **1 chữ hoặc nhiều chữ** đều được | `rubric`, `eval` |
 
 Trục phân biệt: đầu cụm là **động từ** → `collocation`; là **danh từ** và không phải jargon → `phrase`;
 có mặt trong ngôn ngữ chuyên ngành → `tech_term` thắng `word`/`phrase`. `word`/`abbrev` chứa
