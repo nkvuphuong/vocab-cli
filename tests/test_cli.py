@@ -480,8 +480,39 @@ class T10Sheet(unittest.TestCase):
         self.assertEqual(code, cli.EXIT_OK)
         payload = json.loads(out)
         self.assertEqual(payload["sheet"], "Shuffle")  # whatever the endpoint reports
-        self.assertEqual(payload["rows"][0], {"term": "drift", "answer": "lệch chất lượng"})
-        self.assertEqual(payload["rows"][1], {"term": "rubric", "answer": ""})
+        self.assertEqual(payload["rows"][0], {"term": "drift", "answer": "lệch chất lượng",
+                                              "note": ""})
+        self.assertEqual(payload["rows"][1], {"term": "rubric", "answer": "", "note": ""})
+
+    def test_json_keeps_third_column_as_note(self):
+        fake = FakeApi(read={"ok": True, "op": "read", "sheet": "glossary",
+                             "rows": [["asynchronously", "bất đồng bộ", "không dùng chạy nền"]]})
+        code, out, _ = run(["sheet", "--name", "glossary", "--json"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(json.loads(out)["rows"][0]["note"], "không dùng chạy nền")
+
+
+class T11ClearInbox(unittest.TestCase):
+    """`vocab clear-inbox` dọn tab inbox, nhưng phải --confirm và chỉ từ đã có trong terms."""
+
+    def fake(self):
+        return FakeApi(clear_inbox={"ok": True, "removed": 2, "skipped": ["mittens"]})
+
+    def test_needs_confirm_before_any_call(self):
+        fake = self.fake()
+        code, out, _ = run(["clear-inbox", "shovel", "scarf"], fake)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(json.loads(out)["reason"], "confirm_required")
+
+    def test_confirmed_call_reports_removed_and_skipped(self):
+        fake = self.fake()
+        code, out, _ = run(["clear-inbox", "shovel", "scarf", "mittens", "--confirm"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0]["op"], "clear_inbox")
+        self.assertEqual(fake.calls[0]["terms"], ["shovel", "scarf", "mittens"])
+        self.assertIn("2 dòng đã xoá", out)
+        self.assertIn("giữ lại: mittens", out)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,35 @@ Repo: thư mục gốc của repo này (2 cấp trên file này); config: `~/.co
 Nếu shell báo `command not found: vocab` (shell không tương tác không source `~/.zshrc`),
 gọi `<repo>/bin/vocab` — thêm `bin/` vào PATH mới gõ được `vocab`.
 
+## 0. Inbox — user gõ từ sẵn trong Sheet
+
+User tự gõ từ vào tab `inbox` (cột A hoặc B, ô nào có chữ thì lấy) rồi bảo bạn điền nốt:
+
+```bash
+vocab sheet --name inbox --json    # → [{term, answer, note}]
+```
+
+- Tab chưa có → `sheet_not_found`: bảo user tạo tab tên `inbox`, đừng tự tạo.
+- **Chỉ đọc.** Không ghi, không xoá, không sắp xếp lại tab `inbox` (và cả `Shuffle`/`Recheck`) —
+  user đang gõ dở ở đó.
+- Với mỗi từ: `vocab check` trước. Đã có → **skip**, đừng `import` (sẽ cộng `lookup_count` oan).
+- Gõ trùng trong inbox → dedupe trước khi import.
+- Soạn đủ cột như mục 4, khác hai chỗ: `source_type: "term"`, `context_note: "user nhập tay từ sheet"`,
+  `example` tự viết + `example_type: "generated"`. `status` để trống → `new`.
+- Từ **mơ hồ** (`floor`, `suite`, `run`): **dừng, không đoán** — import các từ rõ nghĩa trước,
+  rồi hỏi một lượt theo mẫu mục 3 (mỗi từ 2–4 option), chờ trả lời mới ghi.
+- Báo lại: bảng như mục 5 + danh sách từ bị skip (đã có) và từ đang chờ user chốt nghĩa.
+- **Dọn inbox sau khi xong**: hỏi user một câu ("xoá N dòng đã xử lý trong `inbox`?"),
+  được đồng ý rồi mới chạy — lệnh này từ chối chạy nếu thiếu `--confirm`:
+
+```bash
+vocab clear-inbox shovel scarf --confirm
+```
+
+  Chỉ truyền **từ đã có trong `terms`** (vừa import hoặc đã có sẵn). Endpoint tự kiểm lại:
+  từ nào chưa có trong `terms` thì trả `skipped` và **giữ nguyên dòng** — nên từ mơ hồ
+  đang chờ user chốt nghĩa không bị xoá mất.
+
 ## 1. Lấy nguồn
 
 | Input | Cách lấy |
@@ -79,7 +108,7 @@ Mỗi phần tử:
 | Field | Luật |
 |---|---|
 | `term` | dạng gốc như trong tài liệu |
-| `meaning_short` | nghĩa Việt **1–4 từ**, khác hẳn `term`: cấm viết tắt/biến thể của chính `term` (`PR` cho `pull request`, `CI` cho `continuous integration`) và cấm calque từng chữ (`yêu cầu gộp mã`). Không nghĩ ra gloss thật → **xoá dòng**, đừng lưu gloss rỗng nghĩa. Đây là cột người dùng quét nhanh — **luôn điền** |
+| `meaning_short` | **1–3 gloss**, ngăn bằng ` · `, xếp **phổ biến nhất trước**. Mỗi gloss **1–4 từ**, là **thuật ngữ tiếng Việt chuẩn** nếu có; calque **được phép** khi đó là cách gọi chuẩn (`bất đồng bộ`, `có thể mở rộng`, `tập có nhãn`). Cấm viết tắt/biến thể của chính `term` (`PR`, `CI`) và cấm **định nghĩa** (chứa *của / các / được dùng để*). Không nghĩ ra gloss thật → **xoá dòng**. Đây là cột người dùng quét nhanh — **luôn điền** |
 | `meaning_vi` | nghĩa **theo ngữ cảnh này**, ≤20 từ, nêu sắc thái nếu cần |
 | `type` | `tech_term` (jargon IT) · `word` · `phrase` · `collocation` · `idiom` · `phrasal_verb` · `abbrev` |
 | `cefr` | chỉ điền khi chắc; không chắc thì **bỏ trống** |
@@ -89,6 +118,32 @@ Mỗi phần tử:
 | `context_note` | câu gốc hoặc 1 dòng lý do chọn nghĩa này |
 | `source_url` / `source_title` | khi có |
 | `status` | bỏ trống → `new` |
+
+### Gloss: thuật ngữ chuẩn, không phải lời giải thích
+
+Đọc glossary trước khi soạn để tái dùng cách gọi cũ (tab chưa tạo → lệnh lỗi, bỏ qua):
+
+```bash
+vocab sheet --name glossary --json   # term (A) · answer = gloss chuẩn (B) · note (C)
+```
+
+- `meaning_short` là **từ điển** (gọi tên sự vật), `meaning_vi` là **giải thích theo ngữ cảnh**.
+  Đừng đẩy định nghĩa lên `meaning_short`: `structured outputs` → `đầu ra có cấu trúc`, không phải `ép trả JSON`.
+- **Nhiều gloss là để user chọn, không phải để mình né chọn**: gloss đầu là cái mình khuyên,
+  các gloss sau là biến thể thật sự dùng được. Chỉ đưa biến thể mình dám dùng trong chính câu đó —
+  biến thể sai nghĩa tệ hơn không có biến thể (`asynchronously` chỉ `bất đồng bộ · không đồng bộ`,
+  **không** `chạy nền`). Không có biến thể thật thì để 1 gloss.
+- Luật calque cũ đã bỏ — chính nó sinh ra gloss bịa. `asynchronously` → `bất đồng bộ`
+  (không phải `chạy nền`, đó là *background*); `scalable` → `có thể mở rộng`; `edge case` → `trường hợp biên`.
+- Tự soát 5 điểm **trước khi** `import`:
+  1. Đọc lên có như người Việt nói? (`co giãn được` → `có thể mở rộng`)
+  2. Có phải định nghĩa không? (chứa *của / các / được dùng để* → viết lại)
+  3. Gloss này đã dùng cho từ khác chưa? (`grade` / `grader` / `hand-grade` phải phân biệt được)
+  4. Gloss có trùng `term` hoặc chỉ là bản dịch từng chữ khi tiếng Việt có cách gọi khác?
+  5. Đặt **từng** gloss vào một câu tiếng Việt — cái nào không xuôi thì bỏ.
+- **Không** dùng Google dịch cho cụm — nó dịch từng từ: `accuracy floor` → "tầng chính xác",
+  `labeled set` → "bộ nhãn". Tra được khi cần một từ đơn, nhưng vẫn tự chọn lại.
+- User sửa gloss của một từ → đó là chuẩn mới cho từ đó: `vocab update`, và ghi vào glossary.
 
 ```bash
 cat > /tmp/vocab.json <<'JSON'

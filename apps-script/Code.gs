@@ -7,6 +7,7 @@
  */
 
 const SHEET_NAME = 'terms';
+const INBOX_NAME = 'inbox';
 
 const HEADERS = [
   'id', 'key', 'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short',
@@ -15,7 +16,8 @@ const HEADERS = [
   'last_seen_at', 'created_at', 'updated_at',
 ];
 
-const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'delete', 'list', 'read'];
+const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'delete', 'list', 'read',
+  'clear_inbox'];
 const READ_ONLY_OPS = ['ping', 'check', 'keys', 'list', 'read'];
 const WRITABLE = [
   'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short', 'meaning_vi',
@@ -74,6 +76,7 @@ function dispatch(op, body) {
   if (op === 'delete') return deleteRow(body);
   if (op === 'list') return listRows(body);
   if (op === 'read') return readTab(body);
+  if (op === 'clear_inbox') return clearInbox(body);
   return { ok: false, error: 'unknown_op' };
 }
 
@@ -272,6 +275,46 @@ function deleteRow(body) {
     ok: true, op: 'delete', key: key, term: found.row.term, id: found.row.id,
     row: pick(found.row),
   };
+}
+
+// Destructive but narrow: only the `inbox` tab, and only rows whose term is already
+// saved in `terms` — the word is safe before its inbox row disappears. Deleting the
+// wrong tab would wipe the user's own typing, so the tab name is hard-coded.
+function clearInbox(body) {
+  if (body.confirm !== true) return { ok: false, error: 'confirm_required' };
+  const terms = (body.terms || []).map(function (t) { return String(t || '').trim(); })
+    .filter(function (t) { return t; });
+  if (!terms.length) return { ok: false, error: 'missing_terms' };
+
+  const inbox = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(INBOX_NAME);
+  if (!inbox) return { ok: false, error: 'sheet_not_found', sheet: INBOX_NAME };
+
+  const saved = {};
+  readAll(getSheet()).forEach(function (x) { saved[String(x.row.key)] = true; });
+
+  const wanted = {};
+  const skipped = [];
+  terms.forEach(function (t) {
+    const key = normalizeKey(t);
+    if (!saved[key]) return skipped.push(t);
+    wanted[key] = t;
+  });
+  if (!Object.keys(wanted).length) {
+    return { ok: true, op: 'clear_inbox', removed: 0, skipped: skipped };
+  }
+
+  const values = inbox.getDataRange().getValues();
+  const hits = [];
+  for (let i = 0; i < values.length; i++) {
+    for (let c = 0; c < 2; c++) {
+      const key = normalizeKey(String(values[i][c] === undefined ? '' : values[i][c]));
+      if (key && wanted[key] !== undefined) { hits.push(i + 1); break; }
+    }
+  }
+  hits.sort(function (a, b) { return b - a; })
+    .forEach(function (rowIndex) { inbox.deleteRow(rowIndex); });
+
+  return { ok: true, op: 'clear_inbox', sheet: INBOX_NAME, removed: hits.length, skipped: skipped };
 }
 
 function listRows(body) {

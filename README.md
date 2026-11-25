@@ -93,6 +93,8 @@ Nếu muốn đặt lệnh ở `/usr/local/bin` thì cần `sudo` — PATH là c
 > "lưu từ vựng từ `https://academy.claude.com/courses/introduction-to-evals`"
 > "lưu các từ mới trong đoạn này: …"
 > "lưu `accuracy floor`"  ← từ trần, agent sẽ hỏi 1 câu để chọn nghĩa
+> "điền inbox"            ← từ bạn đã gõ sẵn vào tab `inbox` (xem mục cuối)
+> "chấm bài"              ← chấm đáp án bạn gõ trong `Shuffle`/`Recheck` (xem mục cuối)
 
 Agent đọc nguồn, tự trích từ/cụm từ đáng lưu (cả thuật ngữ IT và từ nâng cao), tự viết
 nghĩa tiếng Việt + IPA + câu ví dụ, rồi gọi `vocab import` một lần và trả về bảng:
@@ -121,6 +123,7 @@ vocab mark drift --status learning
 vocab sheet --name Shuffle
 vocab sheet --name Recheck --json
 vocab update --file glosses.json --dry-run
+vocab clear-inbox shovel scarf --confirm
 vocab delete "block a merge" "narrow the gap"
 vocab delete "block a merge" --dry-run
 ```
@@ -137,6 +140,9 @@ vocab delete "block a merge" --dry-run
   cho máy. Chỉ đọc, không ghi gì.
 - `delete` — xoá hẳn dòng (không hoàn tác được): `vocab delete "block a merge"`,
   hoặc `--dry-run` để xem trước. Key không thấy → exit 2, không xoá gì.
+- `clear-inbox` — dọn dòng đã xử lý trong tab `inbox` (bạn gõ từ vào đó, agent điền nghĩa rồi
+  xoá dòng): bắt buộc `--confirm`; chỉ xoá từ **đã có** trong `terms`, từ còn lại trả về
+  `giữ lại`. Không truyền tab nào khác — tên tab hard-code trong `Code.gs`.
 - `update` — sửa field của dòng đã có, theo `key`: `vocab update --file rows.json`
   (mỗi dòng `{"term": "...", "<field>": "..."}`), `--dry-run` để xem trước. `import`
   không cập nhật field khi trùng key, nên backfill phải dùng lệnh này.
@@ -250,12 +256,46 @@ sau 3 ngày và `known` sau 30 ngày; quên ở đó thì nó về `learning` v�
 lệch hàng so với term ngay sau khi chấm. Agent đọc A+B trước khi ghi; bạn xoá cột B sau mỗi buổi
 và đừng dùng tab đó để "kiểm lại bài".
 
+## Nhập từ mới bằng cách gõ vào Sheet (inbox)
+
+Cách nhanh khi đang cầm điện thoại: không cần mở chat, chỉ gõ từ.
+
+1. Tạo tab tên đúng `inbox` (chỉ 1 lần; không cần header).
+2. Gõ từ/cụm từ vào **cột A hoặc cột B**, mỗi dòng một từ.
+3. Nói với agent: `điền inbox` (hoặc "xử lý inbox", "lưu mấy từ trong inbox").
+
+```
+bạn:   điền inbox
+agent: vocab sheet --name inbox → vocab check từng từ → soạn đủ cột → vocab import
+       → hỏi: "xoá 6 dòng đã xử lý?" → vocab clear-inbox … --confirm → bảng kết quả
+```
+
+| Lệnh | Việc |
+|---|---|
+| `vocab sheet --name inbox --json` | đọc những gì bạn gõ (chỉ đọc, không ghi) |
+| `vocab check "shovel" …` | bỏ qua từ đã có, lấy gloss cũ nếu cần |
+| `vocab import --file rows.json` | ghi các dòng mới, tự dedupe theo `key` |
+| `vocab clear-inbox shovel scarf --confirm` | xoá dòng đã xử lý khỏi `inbox` |
+
+Quy tắc agent giữ:
+
+- Chỉ **đọc** `inbox`; chỉ xoá dòng khi bạn đồng ý, và endpoint chỉ xoá từ **đã có trong
+  `terms`** — từ còn chờ chốt nghĩa thì trả `giữ lại`, không mất.
+- Từ đã có trong `terms` → skip, báo trong bảng (không nhân đôi, không cộng `lookup_count`).
+- Từ **mơ hồ** (`floor`, `suite`, `run`) → không đoán: agent import các từ rõ trước, rồi hỏi
+  bạn 2–4 option cho từng từ, chưa ghi cho tới khi bạn chốt.
+- Ví dụ và nghĩa do agent tự soạn (`source_type: term`, `example_type: generated`).
+- `status` = `new` như mọi từ khác.
+
+> Gõ đúng chính tả: agent không tự sửa `term` bạn đã gõ. Sửa lại thì bảo agent `update`,
+> đừng sửa tay cột `term` (cột `key` bên cạnh sẽ lệch và dedupe hỏng).
+
 ## Bảo mật
 
 | Mối đe doạ | Chặn bằng |
 |---|---|
 | Link Sheet lộ | Sheet Restricted, không share → link vô dụng |
-| URL Web App lộ | token 32B so sánh constant-time, chỉ 9 op trong allowlist (5 read-only), cap 1000 row/6h |
+| URL Web App lộ | token 32B so sánh constant-time, chỉ 10 op trong allowlist (5 read-only), cap 1000 row/6h |
 | Token bị commit | config nằm ngoài repo (`~/.config`), 600, `.gitignore` chặn `config.json`/`.env` |
 | Script lạm quyền | chỉ `SpreadsheetApp` của đúng file, không `DriveApp` |
 | Token lộ thật | đổi `TOKEN` trong Script Properties + config; Sheet vẫn private nên dữ liệu không bị đọc |
@@ -277,7 +317,7 @@ là xử lý xong.
 | `error: daily_cap_reached` | >1000 row trong ~6h — chờ, hoặc nâng `DAILY_WRITE_CAP` |
 | `unknown_op` | endpoint chạy `Code.gs` cũ: dán lại file → Deploy → **New version** |
 | `delete` báo `not_found` | key sai hoặc dòng đã bị xoá — `vocab keys --plain` để xem key thật |
-| `error: confirm_required` | gọi `delete` thẳng qua HTTP mà thiếu `confirm:true`; CLI luôn gửi kèm |
+| `error: confirm_required` | gọi `delete`/`clear_inbox` thẳng qua HTTP mà thiếu `confirm:true`; CLI luôn gửi kèm — riêng `vocab clear-inbox` cần cờ `--confirm` |
 | `error: sheet_not_found` | `vocab sheet` gõ sai tên tab (`--name`), hoặc tab chưa tạo |
 | `too_many_items` | gửi >50 item trong 1 request — dùng `vocab import` (tự chia lô) |
 | Sửa `Code.gs` xong không thấy đổi | phải **Deploy → Manage deployments → Edit → New version** |

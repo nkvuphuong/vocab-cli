@@ -72,6 +72,7 @@ function makeApi(initialRows, token, extraSheets) {
     extras[name] = {
       getName: () => name,
       getDataRange: () => ({ getValues: () => values.map((r) => r.slice()) }),
+      deleteRow: (rowIndex) => { values.splice(rowIndex - 1, 1); },
     };
   });
 
@@ -270,6 +271,38 @@ check('read defaults to terms and rejects an unknown tab', () => {
   const { api } = makeApi(HEAD, 'tok');
   eq(post(api, { token: 'tok', op: 'read' }).rows[0][0], 'id', 'header row of terms');
   eq(post(api, { token: 'tok', op: 'read', sheet: 'Nope' }).error, 'sheet_not_found');
+});
+
+check('clear_inbox deletes done rows, keeps the ones not yet saved', () => {
+  const inbox = [['shovel'], ['scarf'], ['mittens'], ['driveway']];
+  const { api } = makeApi(HEAD, 'tok', { inbox: inbox });
+  post(api, { token: 'tok', op: 'append_many', items: [row('shovel', 'xúc'), row('scarf', 'khăn')] });
+  const res = post(api, { token: 'tok', op: 'clear_inbox', confirm: true, terms: ['scarf', 'shovel', 'mittens'] });
+  eq(res.ok, true, 'ok');
+  eq(res.removed, 2, 'removed');
+  eq(res.skipped, ['mittens'], 'skipped = not in terms, row kept');
+  eq(inbox, [['mittens'], ['driveway']], 'inbox after');
+});
+
+check('clear_inbox matches case and spacing, and only the first two columns', () => {
+  const inbox = [['  Shovel. '], ['scarf', '', 'shovel in the note column']];
+  const { api } = makeApi(HEAD, 'tok', { inbox: inbox });
+  post(api, { token: 'tok', op: 'append_many', items: [row('shovel', 'xúc')] });
+  const res = post(api, { token: 'tok', op: 'clear_inbox', confirm: true, terms: ['shovel'] });
+  eq(res.removed, 1, 'removed');
+  eq(inbox.length, 1, 'note-only row survives');
+});
+
+check('clear_inbox needs confirm:true and at least one term', () => {
+  const { api } = makeApi(HEAD, 'tok', { inbox: [['shovel']] });
+  eq(post(api, { token: 'tok', op: 'clear_inbox', terms: ['shovel'] }).error, 'confirm_required');
+  eq(post(api, { token: 'tok', op: 'clear_inbox', confirm: true, terms: [] }).error, 'missing_terms');
+});
+
+check('clear_inbox never touches the Shuffle answers', () => {
+  const { api } = makeApi(HEAD, 'tok', { Shuffle: [['drift', 'lệch']] });
+  eq(post(api, { token: 'tok', op: 'clear_inbox', confirm: true, terms: ['drift'] }).error,
+     'sheet_not_found');
 });
 
 console.log(failures ? '\n' + failures + ' FAILED' : '\nall passed');

@@ -293,12 +293,13 @@ def cmd_mark(args):
 def cmd_sheet(args):
     """Prints a review tab (A = term, B = the answer the user typed) so it can be graded."""
     result = api.call("read", sheet=args.name)
+    raw = [r for r in result.get("rows", []) if r and str(r[0]).strip()]
     rows = [[i + 1, str(r[0]), str(r[1]) if len(r) > 1 else ""]
-            for i, r in enumerate(result.get("rows", []))
-            if r and str(r[0]).strip()]
+            for i, r in enumerate(raw)]
     if args.json:
         _emit({"ok": True, "sheet": result.get("sheet", args.name), "count": len(rows),
-               "rows": [{"term": r[1], "answer": r[2]} for r in rows]})
+               "rows": [{"term": str(r[0]), "answer": str(r[1]) if len(r) > 1 else "",
+                         "note": str(r[2]) if len(r) > 2 else ""} for r in raw]})
         return EXIT_OK
     _table(["#", "term", "bạn viết"], rows)
     answered = sum(1 for r in rows if r[2].strip())
@@ -339,6 +340,25 @@ def cmd_delete(args):
         _table(["term", "loại", "kết quả"], rows)
         print(f"{hit} {'sẽ xoá' if args.dry_run else 'đã xoá'} · {missing} không thấy")
     return EXIT_OK if not missing else EXIT_NEEDS
+
+
+def cmd_clear_inbox(args):
+    """Deletes inbox rows for terms already saved in `terms`; needs --confirm."""
+    if not args.terms:
+        return _needs("missing_terms")
+    if not args.confirm:
+        return _needs("confirm_required", terms=args.terms,
+                      hint="Hỏi user trước, rồi chạy lại với --confirm.")
+
+    result = api.call("clear_inbox", terms=args.terms, confirm=True)
+    removed, skipped = result.get("removed", 0), result.get("skipped", [])
+    if args.json:
+        _emit({"ok": True, "removed": removed, "skipped": skipped})
+    else:
+        for term in skipped:
+            print(f"giữ lại: {term} (chưa có trong terms)")
+        print(f"{removed} dòng đã xoá khỏi inbox · {len(skipped)} từ giữ lại")
+    return EXIT_OK
 
 
 def cmd_ping(args):
@@ -411,6 +431,13 @@ def build_parser():
     sheet.add_argument("--name", default="Shuffle", help="tab name (default Shuffle)")
     sheet.add_argument("--json", action="store_true")
     sheet.set_defaults(func=cmd_sheet)
+
+    clear = sub.add_parser("clear-inbox",
+                           help="delete inbox rows whose term is already saved in terms")
+    clear.add_argument("terms", nargs="+")
+    clear.add_argument("--confirm", action="store_true", help="actually delete (ask user first)")
+    clear.add_argument("--json", action="store_true")
+    clear.set_defaults(func=cmd_clear_inbox)
 
     delete = sub.add_parser("delete", help="remove rows for good (Sheet has no undo)")
     delete.add_argument("terms", nargs="+")
