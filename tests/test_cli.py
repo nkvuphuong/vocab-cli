@@ -525,5 +525,28 @@ class T11ClearInbox(unittest.TestCase):
         self.assertIn("giữ lại: mittens", out)
 
 
+class T12Draw(unittest.TestCase):
+    """`vocab draw` ghi bộ từ mới vào Shuffle; cột A là value nên không tự xáo khi gõ B."""
+
+    def fake(self):
+        return FakeApi(draw={"ok": True, "op": "draw", "sheet": "Shuffle", "count": 3,
+                             "terms": ["drift", "rubric", "accuracy floor"]})
+
+    def test_defaults_to_ten_and_lists_the_terms(self):
+        fake = self.fake()
+        code, out, _ = run(["draw"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0], {"op": "draw", "count": 10})
+        self.assertIn("1. drift", out)
+        self.assertIn("3. accuracy floor", out)
+        self.assertIn("3 từ · gõ nghĩa vào cột B", out)
+
+    def test_count_is_forwarded(self):
+        fake = self.fake()
+        code, _, _ = run(["draw", "--count", "20"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0], {"op": "draw", "count": 20})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

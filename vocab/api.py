@@ -51,7 +51,7 @@ def load_config():
     token = os.environ.get("VOCAB_TOKEN") or cfg.get("token")
     if not endpoint or not token:
         raise ApiError(
-            f"missing endpoint/token: create {CONFIG_PATH} (see README setup step 4)"
+            f"missing endpoint/token: create {CONFIG_PATH} (see docs/setup.md step 4)"
         )
     return {"endpoint": endpoint, "token": token, "timeout": float(cfg.get("timeout", 20))}
 

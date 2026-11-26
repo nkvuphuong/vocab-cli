@@ -99,4 +99,4 @@ take ownership  chịu trách nhiệm      sự chủ động nhận việc     
 - Không chấm bằng so khớp chuỗi / `difflib` / lowercase-rồi-so.
 - Không ghi `known` khi độ tự tin thấp, khi term không có trong `terms`, hoặc khi cột B trống.
 - Không tự thêm từ mới hay sửa `meaning_vi` trong lúc chấm (việc của `vocab-capture`).
-- Không sửa công thức tab `Shuffle`/`Recheck`, không đổi `status` của từ không có trong bài.
+- Không ghi vào tab `Shuffle`/`Recheck` (chỉ `vocab draw` được ghi cột A), không đổi `status` của từ không có trong bài.

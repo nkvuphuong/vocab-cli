@@ -308,6 +308,16 @@ def cmd_sheet(args):
     return EXIT_OK
 
 
+def cmd_draw(args):
+    """Fills Shuffle column A with a fresh random set of terms; clears column B."""
+    result = api.call("draw", count=args.count)
+    terms = result.get("terms", [])
+    for i, term in enumerate(terms, 1):
+        print(f"{i:>2}. {term}")
+    print(f"{len(terms)} từ · gõ nghĩa vào cột B, đừng sửa cột A")
+    return EXIT_OK
+
+
 def cmd_delete(args):
     rows, hit, missing = [], 0, 0
     for term in args.terms:
@@ -432,6 +442,10 @@ def build_parser():
     sheet.add_argument("--name", default="Shuffle", help="tab name (default Shuffle)")
     sheet.add_argument("--json", action="store_true")
     sheet.set_defaults(func=cmd_sheet)
+
+    draw = sub.add_parser("draw", help="write N random terms into the Shuffle tab")
+    draw.add_argument("--count", type=int, default=10)
+    draw.set_defaults(func=cmd_draw)
 
     clear = sub.add_parser("clear-inbox",
                            help="delete inbox rows whose term is already saved in terms")

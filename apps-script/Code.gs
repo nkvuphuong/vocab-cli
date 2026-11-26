@@ -1,13 +1,14 @@
 /**
  * vocab-cli — Google Apps Script endpoint.
  *
- * Setup: see README.md (Sheet must stay "Restricted"; this script runs as you).
+ * Setup: see docs/setup.md (Sheet must stay "Restricted"; this script runs as you).
  * Required Script Property: TOKEN  (random, 32+ bytes)
  * Deploy: Execute as "Me", Who has access "Anyone" — the token is the only gate.
  */
 
 const SHEET_NAME = 'terms';
 const INBOX_NAME = 'inbox';
+const SHUFFLE_NAME = 'Shuffle';
 
 const HEADERS = [
   'id', 'key', 'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short',
@@ -17,7 +18,7 @@ const HEADERS = [
 ];
 
 const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'delete', 'list', 'read',
-  'clear_inbox'];
+  'draw', 'clear_inbox'];
 const READ_ONLY_OPS = ['ping', 'check', 'keys', 'list', 'read'];
 const WRITABLE = [
   'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short', 'meaning_vi',
@@ -31,6 +32,10 @@ const DAILY_WRITE_CAP = 1000;
 
 // Max rows per append_many call; the CLI chunks larger imports.
 const MAX_BATCH = 50;
+
+// Default / max terms written by `draw` (same 10 the old RANDARRAY formula showed).
+const DRAW_DEFAULT = 10;
+const DRAW_MAX = 50;
 
 function doPost(e) {
   try {
@@ -76,6 +81,7 @@ function dispatch(op, body) {
   if (op === 'delete') return deleteRow(body);
   if (op === 'list') return listRows(body);
   if (op === 'read') return readTab(body);
+  if (op === 'draw') return draw(body);
   if (op === 'clear_inbox') return clearInbox(body);
   return { ok: false, error: 'unknown_op' };
 }
@@ -275,6 +281,35 @@ function deleteRow(body) {
     ok: true, op: 'delete', key: key, term: found.row.term, id: found.row.id,
     row: pick(found.row),
   };
+}
+
+// Writes drawn terms as plain values: a live RANDARRAY formula reshuffled on every
+// edit, so typing an answer in column B moved the terms under it. Plain values also
+// survive a `mark` (status change) — nothing to recalculate.
+// Destructive: overwrites Shuffle column A (and the old formula there) and clears B.
+function draw(body) {
+  let want = parseInt(body.count, 10);
+  if (isNaN(want)) want = DRAW_DEFAULT;
+  const limit = Math.min(Math.max(want, 1), DRAW_MAX);
+  const shuffle = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHUFFLE_NAME);
+  if (!shuffle) return { ok: false, error: 'sheet_not_found', sheet: SHUFFLE_NAME };
+
+  // Same pool as the old Shuffle formula: has a term, not learned yet.
+  const pool = readAll(getSheet())
+    .filter(function (x) { return String(x.row.term || '').trim() && String(x.row.status) !== 'known'; })
+    .map(function (x) { return String(x.row.term); });
+  if (!pool.length) return { ok: false, error: 'no_candidates' };
+
+  for (let i = pool.length - 1; i > 0; i--) {  // Fisher-Yates, uniform
+    const j = Math.floor(Math.random() * (i + 1));
+    const swap = pool[i]; pool[i] = pool[j]; pool[j] = swap;
+  }
+  const terms = pool.slice(0, limit);
+
+  shuffle.getRange('A:B').clearContent();
+  shuffle.getRange(1, 1, terms.length, 1)
+    .setValues(terms.map(function (t) { return [t]; }));
+  return { ok: true, op: 'draw', sheet: SHUFFLE_NAME, count: terms.length, terms: terms };
 }
 
 // Destructive but narrow: only the `inbox` tab, and only rows whose term is already

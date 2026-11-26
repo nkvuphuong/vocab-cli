@@ -3,8 +3,9 @@
 Tool nhỏ: CLI stdlib Python + Apps Script endpoint, ghi từ vựng vào một Google Sheet
 private. **Sheet là UI duy nhất** — không thêm web UI/extension trừ khi user yêu cầu.
 
-Skill nằm trong repo (`.opencode/skills/`): `vocab-capture` (trích/lưu từ) và `vocab-grade`
-(chấm bài trên `Shuffle`/`Recheck`). Đọc skill tương ứng trước khi làm.
+Skill nằm trong repo (`.opencode/skills/`): `vocab-capture` (trích/lưu từ), `vocab-draw`
+(trộn bộ từ mới vào `Shuffle`) và `vocab-grade` (chấm bài trên `Shuffle`/`Recheck`). Đọc skill
+tương ứng trước khi làm.
 Lệnh `vocab` chỉ có trong PATH khi user đã export; nếu không, gọi `bin/vocab` (tương đối
 từ repo root) hoặc `<repo>/bin/vocab`.
 
@@ -16,10 +17,11 @@ từ repo root) hoặc `<repo>/bin/vocab`.
 | "lưu `<một từ/cụm>`" | chưa có ngữ cảnh → hỏi 1 câu chọn nghĩa → `vocab import` | `vocab-capture` mục 3 |
 | "điền inbox" | `vocab sheet --name inbox --json` → `vocab check` từng từ → soạn → `vocab import` → **hỏi** → `vocab clear-inbox … --confirm` | `vocab-capture` mục 0 |
 | "chấm bài" | `vocab sheet --name Shuffle/Recheck` → `vocab check` → `vocab mark` | `vocab-grade` |
+| "trộn bài" / "rút 10 từ" | `vocab draw [--count N]` → hiện danh sách | `vocab-draw` |
 | "sửa nghĩa/gloss của X" | `vocab update --file` (không `import`, không sửa tay Sheet) | `vocab-capture` mục 4 |
 
-Lệnh/exit code và luồng từng prompt có trong `README.md` (mục "Dùng", "Nhập từ mới bằng cách
-gõ vào Sheet", "Chấm bài").
+Lệnh/exit code và luồng từng prompt có trong `docs/commands.md` và `docs/workflows.md`;
+`README.md` chỉ là bản đồ + quickstart.
 
 ## Kiểm tra trước khi kết thúc
 
@@ -37,7 +39,9 @@ Deploy → Manage deployments → Edit → **New version**.
 - **Không bao giờ** đưa token/endpoint vào repo hay vào lệnh shell. Config ở
   `~/.config/vocab-cli/config.json` (600, ngoài repo).
 - Không chèn cột, không ghi ra ngoài `terms`: `terms` là tab duy nhất agent ghi nội dung;
-  `inbox`, `Shuffle`, `Recheck` là tab user tự gõ — agent đọc qua `vocab sheet --name <tab>`.
+  `inbox`, `Recheck` và cột B của `Shuffle` là tab user tự gõ — agent đọc qua
+  `vocab sheet --name <tab>`. Ngoại lệ duy nhất là op `draw`: ghi `term` vào cột A của
+  `Shuffle` dưới dạng value (không công thức) sau khi xoá `A:B`.
   Chỉ `inbox` được xoá dòng, và chỉ qua `clear_inbox` (xem dưới).
 - `inbox` (tính năng nhập tay): user gõ từ vào cột A hoặc B, agent soạn đủ cột còn lại rồi
   `vocab import` (`source_type: "term"`, `example_type: "generated"`). Từ mơ hồ thì **hỏi**,
@@ -63,9 +67,13 @@ Deploy → Manage deployments → Edit → **New version**.
   (không có thì trả về `skipped` và giữ dòng), tên tab hard-code nên không đụng được
   `Shuffle`/`Recheck`. Không thêm `delete_many` — lệnh rời vẫn rẻ hơn một op xoá hàng loạt.
 - `read` là op chỉ-đọc duy nhất trả cell thô của **một tab bất kỳ** (không nhận range), để
-  `vocab sheet` đọc bài làm. Không mở đường ghi ra ngoài `terms` — ngoại lệ duy nhất là
-  `clear_inbox` ở trên.
-- Cột B của `Shuffle`/`Recheck` là bài làm của người dùng: agent đọc, **không ghi, không xoá**.
+  `vocab sheet` đọc bài làm. Không mở đường ghi ra ngoài `terms` — hai ngoại lệ duy nhất là
+  `draw` và `clear_inbox` ở trên, cả hai đều hard-code tên tab.
+- `draw` thay công thức `RANDARRAY` cũ của `Shuffle`: pool giống hệt (`term` khác rỗng,
+  `status <> known`), chọn ngẫu nhiên 1..50 từ (mặc định 10), ghi value vào cột A. Ghi `status`
+  không còn làm cột A xê dịch; bộ từ chỉ đổi khi chạy `draw`.
+- Cột B của `Shuffle`/`Recheck` là bài làm của người dùng: agent đọc, **không ghi**. Chỉ `draw`
+  được xoá cột B của `Shuffle`, và luôn xoá cùng lúc với việc thay bộ từ ở cột A.
 - Lịch ôn dùng `status` + `updated_at` (3/30 ngày nằm trong công thức `Recheck`), không thêm
   cột SRS trừ khi user yêu cầu.
 - Nghĩa/IPA/ví dụ do agent soạn, không bắt user cung cấp — xem skill `vocab-capture`.

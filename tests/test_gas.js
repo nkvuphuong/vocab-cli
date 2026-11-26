@@ -69,10 +69,45 @@ function makeApi(initialRows, token, extraSheets) {
   const extras = {};
   Object.keys(extraSheets || {}).forEach((name) => {
     const values = extraSheets[name];
+    const range = (row, col, numRows, numCols) => ({
+      getValues: () => {
+        const out = [];
+        for (let r = 0; r < numRows; r++) {
+          const line = values[row - 1 + r] || [];
+          const cells = [];
+          for (let c = 0; c < numCols; c++) cells.push(line[col - 1 + c] === undefined ? '' : line[col - 1 + c]);
+          out.push(cells);
+        }
+        return out;
+      },
+      setValues: (matrix) => {
+        matrix.forEach((line, i) => {
+          while (values.length < row + i) values.push([]);
+          line.forEach((v, c) => { values[row - 1 + i][col - 1 + c] = v; });
+        });
+      },
+      clearContent: () => {
+        for (let r = 0; r < numRows; r++) {
+          const line = values[row - 1 + r];
+          if (!line) continue;
+          for (let c = 0; c < numCols; c++) line[col - 1 + c] = '';
+        }
+        // A cleared sheet has no data range any more: drop empty trailing rows.
+        while (values.length && values[values.length - 1].every((c) => c === '' || c === undefined)) values.pop();
+      },
+    });
     extras[name] = {
       getName: () => name,
       getDataRange: () => ({ getValues: () => values.map((r) => r.slice()) }),
+      getLastRow: () => values.length,
       deleteRow: (rowIndex) => { values.splice(rowIndex - 1, 1); },
+      getRange: (a, b, c, d) => {
+        if (typeof a === 'string') {
+          if (a !== 'A:B') throw new Error('fake only implements A:B, got ' + a);
+          return range(1, 1, Math.max(values.length, 1), 2);
+        }
+        return range(a, b, c, d);
+      },
     };
   });
 
@@ -271,6 +306,66 @@ check('read defaults to terms and rejects an unknown tab', () => {
   const { api } = makeApi(HEAD, 'tok');
   eq(post(api, { token: 'tok', op: 'read' }).rows[0][0], 'id', 'header row of terms');
   eq(post(api, { token: 'tok', op: 'read', sheet: 'Nope' }).error, 'sheet_not_found');
+});
+
+// n rows of the real header shape, so `draw` sees term + status in the right columns.
+function termRows(n, status) {
+  const rows = [HEADER.slice()];
+  for (let i = 1; i <= n; i++) {
+    const r = new Array(HEADER.length).fill('');
+    r[0] = 'id-' + i; r[1] = 't' + i; r[2] = 't' + i; r[17] = status || 'new';
+    rows.push(r);
+  }
+  return rows;
+}
+
+check('draw writes plain terms into Shuffle A and clears the old answers in B', () => {
+  const shuffle = [['cũ-1', 'đáp án cũ'], ['cũ-2', 'đáp án cũ 2']];
+  const { api } = makeApi(termRows(12), 'tok', { Shuffle: shuffle });
+  const res = post(api, { token: 'tok', op: 'draw' });
+  eq(res.ok, true, 'ok');
+  eq(res.op, 'draw', 'op echoed');
+  eq(res.count, 10, 'default count');
+  eq(shuffle.length, 10, 'old rows replaced');
+  eq(shuffle.map((r) => r[1] || ''), new Array(10).fill(''), 'column B cleared');
+  eq(new Set(shuffle.map((r) => r[0])).size, 10, 'ten distinct terms');
+  eq(res.terms, shuffle.map((r) => r[0]), 'response matches column A');
+});
+
+check('draw uses the old formula pool: term non-empty, status not known', () => {
+  const rows = termRows(6);
+  rows[3][17] = 'known';  // t3 learned
+  rows[5][2] = '';        // t5 has no term
+  const { api } = makeApi(rows, 'tok', { Shuffle: [['t1', 'đáp án cũ']] });
+  const res = post(api, { token: 'tok', op: 'draw', count: 3 });
+  eq(res.count, 3, 'count');
+  eq(res.terms.indexOf('t3'), -1, 'known excluded');
+  eq(res.terms.indexOf('t5'), -1, 'empty term excluded');
+  res.terms.forEach((t) => eq(['t1', 't2', 't4', 't6'].indexOf(t) >= 0, true, 'pool member ' + t));
+});
+
+check('draw clamps count to 1..50 and defaults to 10', () => {
+  const { api } = makeApi(termRows(60), 'tok', { Shuffle: [['x', 'y']] });
+  eq(post(api, { token: 'tok', op: 'draw', count: 999 }).count, 50, 'clamped to DRAW_MAX');
+  eq(post(api, { token: 'tok', op: 'draw', count: 0 }).count, 1, 'floor 1');
+  eq(post(api, { token: 'tok', op: 'draw' }).count, 10, 'default');
+});
+
+check('draw never writes when there is nothing to draw or no Shuffle tab', () => {
+  const known = [['cũ', 'đáp án']];
+  const { api } = makeApi(termRows(2, 'known'), 'tok', { Shuffle: known });
+  eq(post(api, { token: 'tok', op: 'draw' }).error, 'no_candidates');
+  eq(known, [['cũ', 'đáp án']], 'Shuffle untouched');
+
+  const bare = makeApi(termRows(3), 'tok');
+  eq(post(bare.api, { token: 'tok', op: 'draw' }).error, 'sheet_not_found');
+});
+
+check('draw is rejected for a wrong token', () => {
+  const shuffle = [['giữ nguyên', 'đáp án']];
+  const { api } = makeApi(termRows(3), 'tok', { Shuffle: shuffle });
+  eq(post(api, { token: 'nope', op: 'draw' }).error, 'unauthorized');
+  eq(shuffle, [['giữ nguyên', 'đáp án']], 'nothing written');
 });
 
 check('clear_inbox deletes done rows, keeps the ones not yet saved', () => {
