@@ -12,7 +12,8 @@ EXIT_API = 1
 EXIT_NEEDS = 2  # caller must supply more info; nothing was written
 
 STATUSES = ["new", "learning", "known"]
-TYPES = ["word", "phrase", "idiom", "phrasal_verb", "collocation", "abbrev", "tech_term"]
+TYPES = ["word", "phrase", "idiom", "phrasal_verb", "collocation", "abbrev", "tech_term",
+         "pattern"]
 EXAMPLE_TYPES = ["source", "generated"]
 SOURCE_TYPES = ["url", "text", "term"]
 

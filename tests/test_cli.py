@@ -292,6 +292,16 @@ class T5Import(unittest.TestCase):
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual(fake.calls[0]["op"], "append_many")
 
+    def test_allows_pattern_with_spaces_and_slots(self):
+        fake = ImportFake()
+        argv, path = import_args([{"term": "teach someone about something",
+                                   "meaning_vi": "dạy ai về điều gì", "type": "pattern",
+                                   "context_note": "Mr. Parker teaches them about letters."}])
+        self._tmp = [path]
+        code, _, _ = run(argv, fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0]["op"], "append_many")
+
     def test_dry_run_writes_nothing(self):
         fake = ImportFake(existing=["drift"])
         argv, path = import_args(ROWS, "--dry-run")

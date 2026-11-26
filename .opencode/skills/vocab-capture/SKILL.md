@@ -110,7 +110,7 @@ Mỗi phần tử:
 | `term` | dạng gốc như trong tài liệu |
 | `meaning_short` | **1–3 gloss**, ngăn bằng ` · `, xếp **phổ biến nhất trước**. Mỗi gloss **1–4 từ**, là **thuật ngữ tiếng Việt chuẩn** nếu có; calque **được phép** khi đó là cách gọi chuẩn (`bất đồng bộ`, `có thể mở rộng`, `tập có nhãn`). Cấm viết tắt/biến thể của chính `term` (`PR`, `CI`) và cấm **định nghĩa** (chứa *của / các / được dùng để*). Không nghĩ ra gloss thật → **xoá dòng**. Đây là cột người dùng quét nhanh — **luôn điền** |
 | `meaning_vi` | nghĩa **theo ngữ cảnh này**, ≤20 từ, nêu sắc thái nếu cần |
-| `type` | `tech_term` (jargon IT) · `word` · `phrase` · `collocation` · `idiom` · `phrasal_verb` · `abbrev` |
+| `type` | `tech_term` (jargon IT) · `word` · `phrase` · `collocation` · `idiom` · `phrasal_verb` · `abbrev` · `pattern` (khung câu) |
 | `cefr` | chỉ điền khi chắc; không chắc thì **bỏ trống** |
 | `domain` | tag theo tài liệu (`evals`, `git`, `devops`, `business`…). Tái dùng tag đã có: `vocab list --json --limit 200` |
 | `ipa` | 1 dạng, ưu tiên US; **bỏ** với abbreviation/tên riêng |
@@ -176,10 +176,14 @@ CLI tự chia lô 50 dòng, dedupe theo `key` (trùng → `lookup_count+1`, khô
 | `collocation` | cụm **động từ** + bổ ngữ, động từ mang nghĩa ẩn dụ/cố định | `go green`, `take ownership` |
 | `phrase` | cụm **danh từ** cố định, không phải thuật ngữ ngành | `accuracy floor`, `outside knowledge` |
 | `tech_term` | thuật ngữ ngành, **1 chữ hoặc nhiều chữ** đều được | `rubric`, `eval` |
+| `pattern` | **cấu trúc câu** (khung ngữ pháp), không phải cụm từ vựng | `teach someone about something`, `It takes someone N hours to …` |
 
 Trục phân biệt: đầu cụm là **động từ** → `collocation`; là **danh từ** và không phải jargon → `phrase`;
-có mặt trong ngôn ngữ chuyên ngành → `tech_term` thắng `word`/`phrase`. `word`/`abbrev` chứa
-dấu cách sẽ bị CLI từ chối.
+có mặt trong ngôn ngữ chuyên ngành → `tech_term` thắng `word`/`phrase`. Một khung có **chỗ trống**
+(`someone`, `something`, `to …`) → `pattern`. `word`/`abbrev` chứa dấu cách sẽ bị CLI từ chối.
+
+Viết `pattern` theo dạng đọc được, **không** dùng nota kiểu `teach(es) (someone) about`:
+`teach someone about something`; biến thể chia thì (`-s`, `-ed`) để trong `meaning_vi`.
 
 Tuỳ chọn:
 - `vocab import --file rows.json --dry-run` — xem trước, không ghi.
