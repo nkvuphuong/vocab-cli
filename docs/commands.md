@@ -17,6 +17,8 @@ vocab draw --count 20 --direction mixed
 vocab recheck
 vocab update --file glosses.json --dry-run
 vocab clear-inbox shovel scarf --confirm
+vocab reorder --dry-run
+vocab reorder --confirm
 vocab delete "block a merge" "narrow the gap"
 vocab delete "block a merge" --dry-run
 vocab add "drift" --meaning-vi "sự lệch chất lượng" --context "…"
@@ -52,6 +54,11 @@ vocab ping
   exit 2, không xoá gì.
 - `clear-inbox` — dọn dòng đã xử lý trong `inbox`: bắt buộc `--confirm`; chỉ xoá từ **đã có**
   trong `terms`, còn lại trả `giữ lại`. Tên tab hard-code trong `Code.gs`.
+- `reorder` — đưa tab `terms` về đúng thứ tự cột chuẩn (`HEADERS` trong `Code.gs`): `--dry-run`
+  in thứ tự hiện tại/đích, cột sẽ thêm và cột lạ; `--confirm` mới chuyển thật. Move theo tên
+  header, thêm cột thiếu (rỗng) đúng chỗ, áp lại dropdown `status`/`status_vi`, **không** đổi
+  `updated_at` nên lịch ôn không reset. Chạy lại khi đã đúng → `moved: 0`, không ghi.
+  Từ chối khi có cột lạ chứa dữ liệu (`unknown_header`) hoặc ô công thức (`formula_in_terms`).
 - `ping` — kiểm tra endpoint + token.
 
 ## Exit codes

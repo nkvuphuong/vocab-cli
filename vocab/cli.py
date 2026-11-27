@@ -18,8 +18,8 @@ TYPES = ["word", "phrase", "idiom", "phrasal_verb", "collocation", "abbrev", "te
 EXAMPLE_TYPES = ["source", "generated"]
 SOURCE_TYPES = ["url", "text", "term"]
 
-SUMMARY_FIELDS = ["term", "key", "type", "cefr", "domain", "ipa", "meaning_short",
-                  "meaning_vi", "status", "status_vi", "example", "source_url", "id"]
+SUMMARY_FIELDS = ["term", "meaning_short", "status", "status_vi", "ipa", "meaning_vi",
+                  "type", "domain", "cefr", "example", "source_url", "key", "id"]
 
 WRITABLE = ["type", "cefr", "pos", "domain", "ipa", "meaning_short", "meaning_vi",
             "meaning_en", "example", "example_type", "context_note", "source_type",
@@ -424,6 +424,28 @@ def cmd_clear_inbox(args):
     return EXIT_OK
 
 
+def cmd_reorder(args):
+    """Moves the `terms` columns into the canonical order; needs --confirm."""
+    if args.dry_run:
+        result = api.call("reorder", dry_run=True)
+        print("hiện tại: " + " · ".join(result.get("current") or []))
+        print("đích:     " + " · ".join(result.get("target") or []))
+        if result.get("added"):
+            print("thêm:     " + " · ".join(result["added"]))
+        if result.get("unknown"):
+            print("cột lạ:   " + " · ".join(result["unknown"]) + " (có dữ liệu → --confirm sẽ từ chối)")
+        return EXIT_OK
+    if not args.confirm:
+        return _needs("confirm_required",
+                      hint="Chạy --dry-run để xem diff, rồi --confirm để chuyển cột.")
+
+    result = api.call("reorder", confirm=True)
+    added = result.get("added") or []
+    print(f"đã chuyển {result.get('moved', 0)} cột · thêm {len(added)}"
+          + (f" ({', '.join(added)})" if added else ""))
+    return EXIT_OK
+
+
 def cmd_ping(args):
     _emit(api.call("ping"))
     return EXIT_OK
@@ -520,6 +542,12 @@ def build_parser():
     delete.add_argument("--dry-run", action="store_true", help="show what would go, delete nothing")
     delete.add_argument("--json", action="store_true")
     delete.set_defaults(func=cmd_delete)
+
+    reorder = sub.add_parser("reorder",
+                             help="move terms columns into the canonical order (Code.gs HEADERS)")
+    reorder.add_argument("--dry-run", action="store_true", help="show current/target, write nothing")
+    reorder.add_argument("--confirm", action="store_true", help="actually move the columns")
+    reorder.set_defaults(func=cmd_reorder)
 
     return parser
 

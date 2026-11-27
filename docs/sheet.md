@@ -6,28 +6,48 @@ ghi tab `terms`; hai ngoại lệ duy nhất là `vocab draw` và `vocab recheck
 
 ## Tab `terms` — nơi lưu duy nhất
 
-23 cột, thứ tự cố định:
+23 cột, thứ tự chuẩn:
 
 ```
-A id · B key · C term · D type · E cefr · F pos · G domain · H ipa
-I meaning_short · J meaning_vi · K meaning_en · L example · M example_type
-N context_note · O source_type · P source_url · Q source_title · R status
-S lookup_count · T last_seen_at · U created_at · V updated_at · W status_vi
+A term · B meaning_short · C status · D status_vi · E ipa · F meaning_vi
+G meaning_en · H type · I pos · J cefr · K domain · L example
+M example_type · N context_note · O source_url · P source_title · Q source_type
+R lookup_count · S last_seen_at · T created_at · U updated_at · V key · W id
 ```
+
+Năm cột đọc hằng ngày nằm ở A–E; `key`/`id` là cột máy dùng nên ở cuối.
 
 - `key` = `term` đã chuẩn hoá (lowercase, gộp space, bỏ dấu câu hai đầu) — **dedupe theo cột này**.
 - `meaning_short` = gloss 1–4 từ để quét nhanh (tab `Words`/`Phrases` và `vocab list` hiện cột
   này); `meaning_vi` = nghĩa đầy đủ theo ngữ cảnh.
 - Gặp lại từ cũ: không thêm dòng, chỉ `lookup_count + 1` và cập nhật `last_seen_at`.
-- **Thứ tự cột phải khớp `HEADERS`** trong `Code.gs` vì `append` ghi theo vị trí; đọc/ghi một ô
-  thì theo tên header. Chèn cột phải sửa Sheet và `HEADERS` cùng lúc. Đừng đổi tên header,
-  đừng xoá dòng (xoá thì `mark` báo `not_found`, không hỏng gì khác).
+- **Vị trí cột do header row quyết định**, không phải `HEADERS`: endpoint đọc/ghi theo tên header
+  nên kéo cột đi đâu cũng đúng. Muốn đổi thứ tự thì chạy `vocab reorder --confirm`, đừng kéo tay
+  (kéo tay thì dropdown không đi theo). Đừng đổi tên header, đừng xoá dòng (xoá thì `mark` báo
+  `not_found`, không hỏng gì khác).
 - `status` là chiều **Anh→Việt**, `status_vi` là chiều **Việt→Anh**; mỗi trục `new` → `learning`
   → `known`, độc lập nhau (một từ có thể `known` chiều này, `learning` chiều kia). Ô `status_vi`
-  trống nghĩa là `new` — dữ liệu cũ không cần backfill. Dropdown cho R2:R và W2:W:
+  trống nghĩa là `new` — dữ liệu cũ không cần backfill. Dropdown cho C2:C và D2:D:
   Data → Data validation → List of items → `new, learning, known`.
-- Nếu header `status_vi` chưa có ở W1, lệnh ghi chiều Việt→Anh trả `missing_header` chứ không ghi
-  hụt. Thêm header là xong.
+- Nếu header `status_vi` chưa có, lệnh ghi chiều Việt→Anh trả `missing_header` chứ không ghi
+  hụt. `vocab reorder --confirm` thêm cột đó (rỗng) đúng vị trí.
+
+### Đổi thứ tự cột
+
+```bash
+vocab reorder --dry-run    # in thứ tự hiện tại, thứ tự đích, cột sẽ thêm, cột lạ
+vocab reorder --confirm    # move thật
+```
+
+Lệnh chuyển value theo tên header, thêm cột thiếu ở đúng chỗ (rỗng), áp lại dropdown
+`status`/`status_vi` và format ngày cho 3 cột thời gian. Nó **không** đổi `updated_at` nên lịch
+ôn không reset, và chạy lại khi đã đúng thứ tự thì không ghi gì (`moved: 0`).
+
+Thêm cột mới trong tương lai: thêm field vào `HEADERS` (`Code.gs`) ở đúng vị trí muốn, deploy,
+rồi `vocab reorder --confirm`. Không phải thêm ở cuối, không phải sửa chỗ ghi.
+
+Lệnh từ chối ghi khi gặp cột lạ **có dữ liệu** (`unknown_header`) hoặc ô công thức trong `terms`
+(`formula_in_terms`) — xử lý tay trước rồi chạy lại.
 
 ## Ba tab xem lại (công thức)
 
@@ -36,18 +56,23 @@ thì dùng `vocab mark`, đừng sửa trong các tab này.
 
 **Tab `Review`** — từ chưa thuộc, mới gặp gần đây trước:
 ```
-=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:V,terms!R2:R<>"known"),3,8,9,12,18,20),6,FALSE),"no terms yet")
+=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:ZZ;INDEX(terms!A2:ZZ;;MATCH("status";terms!1:1;0))<>"known");MATCH("term";terms!1:1;0);MATCH("ipa";terms!1:1;0);MATCH("meaning_short";terms!1:1;0);MATCH("example";terms!1:1;0);MATCH("status";terms!1:1;0);MATCH("last_seen_at";terms!1:1;0));6;FALSE);"no terms yet")
 ```
 
 **Tab `Words`** — chỉ từ đơn (key không có dấu cách):
 ```
-=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:V,(terms!B2:B<>"")*ISERROR(FIND(" ",terms!B2:B))),3,8,9,4),1,TRUE),"no terms yet")
+=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:ZZ;(INDEX(terms!A2:ZZ;;MATCH("key";terms!1:1;0))<>"")*ISERROR(FIND(" ";INDEX(terms!A2:ZZ;;MATCH("key";terms!1:1;0)))));MATCH("term";terms!1:1;0);MATCH("ipa";terms!1:1;0);MATCH("meaning_short";terms!1:1;0);MATCH("type";terms!1:1;0));1;TRUE);"no terms yet")
 ```
 
 **Tab `Phrases`** — chỉ cụm từ (key có dấu cách):
 ```
-=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:V,ISNUMBER(FIND(" ",terms!B2:B))),3,8,9,4),1,TRUE),"no terms yet")
+=IFERROR(SORT(CHOOSECOLS(FILTER(terms!A2:ZZ;ISNUMBER(FIND(" ";INDEX(terms!A2:ZZ;;MATCH("key";terms!1:1;0)))));MATCH("term";terms!1:1;0);MATCH("ipa";terms!1:1;0);MATCH("meaning_short";terms!1:1;0);MATCH("type";terms!1:1;0));1;TRUE);"no terms yet")
 ```
+Công thức tìm cột bằng `MATCH("<header>"; terms!1:1; 0)` nên đổi thứ tự cột không làm hỏng view.
+
+**Dấu phân cách**: Sheet này dùng locale lấy `;` làm dấu ngăn tham số và `,` làm dấu thập phân
+(`=SUM(1;2)` → 3). Dán công thức bằng `,` sẽ ra `#ERROR!`. Nếu đổi locale của Sheet sang
+kiểu Mỹ thì phải đổi hết `;` thành `,`.
 Hai tab này dựa vào `key` sau chuẩn hoá: `high-stakes` nằm ở `Words` (một từ ghép),
 `back up` / `at any price` nằm ở `Phrases`.
 

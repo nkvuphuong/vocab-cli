@@ -623,5 +623,37 @@ class T13Recheck(unittest.TestCase):
         self.assertEqual(fake.calls[0], {"op": "recheck", "count": 5, "direction": "vi"})
 
 
+class T14Reorder(unittest.TestCase):
+    """`vocab reorder` chỉ ghi khi có --confirm; dry-run chỉ in diff."""
+
+    def test_needs_confirm_before_any_call(self):
+        fake = FakeApi()
+        code, out, _ = run(["reorder"], fake)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        self.assertEqual(json.loads(out)["reason"], "confirm_required")
+        self.assertIn("--dry-run", json.loads(out)["hint"])
+        self.assertEqual(fake.calls, [])
+
+    def test_dry_run_shows_the_diff_and_writes_nothing(self):
+        fake = FakeApi(reorder={"ok": True, "dry_run": True, "moved": 0,
+                                "current": ["id", "key", "term"],
+                                "target": ["term", "key", "id"],
+                                "added": ["status_vi"], "unknown": ["notes2"]})
+        code, out, _ = run(["reorder", "--dry-run"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls, [{"op": "reorder", "dry_run": True}])
+        self.assertIn("hiện tại: id · key · term", out)
+        self.assertIn("đích:     term · key · id", out)
+        self.assertIn("thêm:     status_vi", out)
+        self.assertIn("notes2", out)
+
+    def test_confirm_forwards_and_reports_moved(self):
+        fake = FakeApi(reorder={"ok": True, "dry_run": False, "moved": 22, "added": []})
+        code, out, _ = run(["reorder", "--confirm"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls, [{"op": "reorder", "confirm": True}])
+        self.assertIn("đã chuyển 22 cột", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

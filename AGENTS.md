@@ -20,6 +20,7 @@ từ repo root) hoặc `<repo>/bin/vocab`.
 | "trộn bài" / "rút 10 từ" | `vocab draw [--count N] [--direction en\|vi\|mixed]` → hiện danh sách | `vocab-draw` |
 | "ôn lại" / "có gì đến hạn" | `vocab recheck [--count N] [--direction …]` → hiện danh sách | `vocab-draw` |
 | "sửa nghĩa/gloss của X" | `vocab update --file` (không `import`, không sửa tay Sheet) | `vocab-capture` mục 4 |
+| "sắp xếp lại cột" / "thêm cột vào giữa" | `vocab reorder --dry-run` → xem diff → **hỏi** → `vocab reorder --confirm` | — |
 
 Lệnh/exit code và luồng từng prompt có trong `docs/commands.md` và `docs/workflows.md`;
 `README.md` chỉ là bản đồ + quickstart.
@@ -53,12 +54,17 @@ Deploy → Manage deployments → Edit → **New version**.
   ngăn ` · `), C = ghi chú/cấm kỵ. Agent **chỉ đọc** trước khi soạn gloss
   (`vocab sheet --name glossary --json`), bỏ qua dòng header nếu có; không ghi, không xoá.
   User sửa gloss thì thêm một dòng vào đây — đó là luật cho cả họ từ, mạnh hơn `terms`.
-- `HEADERS` là hợp đồng với Sheet: **thứ tự trong `HEADERS` phải khớp thứ tự cột thật**
-  (`append`/`append_many` ghi theo vị trí; đọc và ghi một ô thì theo tên). Chèn hoặc đổi
-  thứ tự cột phải sửa Sheet và `HEADERS` cùng lúc. Không đổi tên cột.
-- `meaning_short` (1–3 gloss ngăn bằng ` · `, gloss đầu là cách gọi phổ biến nhất) đứng ngay
-  trước `meaning_vi` (nghĩa đầy đủ). Cả hai đều do agent soạn; `meaning_short` là cột người đọc
-  quét nhanh; user chốt gloss nào thì sửa ô còn 1 giá trị.
+- `HEADERS` = **tập field + thứ tự cột chuẩn** (bootstrap sheet mới, target của `reorder`).
+  Vị trí thật lấy từ header row của Sheet: mọi read/write tra theo **tên** header, không theo
+  index. Thêm/đổi thứ tự cột: sửa `HEADERS` đúng chỗ muốn rồi `vocab reorder --confirm`
+  (không kéo tay — dropdown và format không đi theo). Không đổi tên cột.
+- `reorder` là op ghi **bắt buộc `confirm: true`** (CLI: `--confirm`; `--dry-run` chỉ in diff):
+  move value theo tên, thêm cột thiếu rỗng, áp lại dropdown `status`/`status_vi` + format ngày,
+  **không** đổi `updated_at` (lịch ôn không reset). Từ chối `unknown_header` (cột lạ có dữ liệu),
+  `formula_in_terms`, `duplicate_header`, và trả `moved: 0` khi đã đúng thứ tự.
+- `meaning_short` (1–3 gloss ngăn bằng ` · `, gloss đầu là cách gọi phổ biến nhất) là cột B —
+  cột người đọc quét nhanh; `meaning_vi` (cột F) là nghĩa đầy đủ theo ngữ cảnh. Cả hai đều do
+  agent soạn; user chốt gloss nào thì sửa ô còn 1 giá trị.
 - `normalizeKey()` (GAS) và `normalize_key()` (`vocab/normalize.py`) là bản sao của
   nhau — sửa cái này phải sửa cái kia và cập nhật `selftest()` + `T1Normalize`.
 - `MAX_BATCH` (GAS) và `BATCH` (`vocab/cli.py`) phải bằng nhau.

@@ -11,15 +11,18 @@ const INBOX_NAME = 'inbox';
 const SHUFFLE_NAME = 'Shuffle';
 const RECHECK_NAME = 'Recheck';
 
+// Canonical order: what a human reads daily sits left, machine-only columns sit right.
+// The live header row is the source of truth for position; this list is the field set,
+// the bootstrap order for a fresh sheet, and the target of `reorder`.
 const HEADERS = [
-  'id', 'key', 'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short',
-  'meaning_vi', 'meaning_en', 'example', 'example_type', 'context_note',
-  'source_type', 'source_url', 'source_title', 'status', 'lookup_count',
-  'last_seen_at', 'created_at', 'updated_at', 'status_vi',
+  'term', 'meaning_short', 'status', 'status_vi', 'ipa', 'meaning_vi', 'meaning_en',
+  'type', 'pos', 'cefr', 'domain', 'example', 'example_type', 'context_note',
+  'source_url', 'source_title', 'source_type', 'lookup_count', 'last_seen_at',
+  'created_at', 'updated_at', 'key', 'id',
 ];
 
 const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'delete', 'list', 'read',
-  'draw', 'recheck', 'clear_inbox'];
+  'draw', 'recheck', 'clear_inbox', 'reorder'];
 const READ_ONLY_OPS = ['ping', 'check', 'keys', 'list', 'read'];
 const WRITABLE = [
   'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short', 'meaning_vi',
@@ -86,6 +89,7 @@ function dispatch(op, body) {
   if (op === 'draw') return draw(body);
   if (op === 'recheck') return recheck(body);
   if (op === 'clear_inbox') return clearInbox(body);
+  if (op === 'reorder') return reorder(body);
   return { ok: false, error: 'unknown_op' };
 }
 
@@ -127,6 +131,7 @@ function getSheet() {
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(HEADERS);
     sheet.setFrozenRows(1);
+    applyColumnFormats(sheet);
   }
   return sheet;
 }
@@ -164,6 +169,114 @@ function headerNames(sheet) {
   return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
 }
 
+// Header names outside HEADERS that hold data. Read-only: a stray empty column is
+// harmless, a stray column with content is not ours to move or drop.
+function unknownColumns(sheet, names) {
+  const extra = [];
+  names.forEach(function (n, i) { if (n && HEADERS.indexOf(n) < 0) extra.push(i); });
+  const rows = Math.max(sheet.getLastRow() - 1, 0);
+  if (!extra.length || !rows) return [];
+  const values = sheet.getRange(2, 1, rows, names.length).getValues();
+  return extra.filter(function (c) {
+    return values.some(function (line) { return String(line[c] === undefined ? '' : line[c]).trim() !== ''; });
+  }).map(function (c) { return names[c]; });
+}
+
+// Gate for every write op: a layout we do not recognise means a write could land in
+// the wrong column. `allowMissing` is for `reorder`, which adds absent fields itself.
+function assertColumns(sheet, allowMissing) {
+  const names = headerNames(sheet);
+  const seen = {};
+  for (let i = 0; i < names.length; i++) {
+    if (!names[i]) continue;
+    if (seen[names[i]] !== undefined) return { ok: false, error: 'duplicate_header', header: names[i] };
+    seen[names[i]] = i;
+  }
+  if (!allowMissing) {
+    const missing = HEADERS.filter(function (h) { return names.indexOf(h) < 0; });
+    if (missing.length) {
+      return { ok: false, error: 'missing_header', header: missing[0], headers: missing };
+    }
+  }
+  const unknown = unknownColumns(sheet, names);
+  if (unknown.length) return { ok: false, error: 'unknown_header', headers: unknown };
+  return null;
+}
+
+function applyColumnFormats(sheet) {
+  const names = headerNames(sheet);
+  const rows = Math.max(sheet.getMaxRows() - 1, 0);
+  if (!rows) return;
+  const column = function (h) { return names.indexOf(h) + 1; };
+  ['status', 'status_vi'].forEach(function (h) {
+    const c = column(h);
+    if (!c) return;
+    const range = sheet.getRange(2, c, rows, 1);
+    range.clearDataValidations();
+    range.setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(['new', 'learning', 'known'], true)
+      .setAllowInvalid(false)
+      .build());
+  });
+  ['last_seen_at', 'created_at', 'updated_at'].forEach(function (h) {
+    const c = column(h);
+    if (c) sheet.getRange(2, c, rows, 1).setNumberFormat('yyyy-mm-dd hh:mm');
+  });
+}
+
+// Re-runnable migration: align the header row to HEADERS, keeping every value under its
+// own header name. Values only — never `new Date()` — so the review schedule survives.
+function reorder(body) {
+  const sheet = getSheet();
+  const names = headerNames(sheet);
+  const added = HEADERS.filter(function (h) { return names.indexOf(h) < 0; });
+  const unknown = unknownColumns(sheet, names);
+
+  if (body.dry_run === true) {
+    return {
+      ok: true, op: 'reorder', dry_run: true, moved: 0,
+      current: names.filter(function (n) { return n; }),
+      target: HEADERS.slice(), added: added, unknown: unknown,
+    };
+  }
+  if (body.confirm !== true) return { ok: false, error: 'confirm_required' };
+
+  const problem = assertColumns(sheet, true);
+  if (problem) return problem;
+
+  const lastRow = sheet.getLastRow();
+  const formulas = sheet.getRange(1, 1, Math.max(lastRow, 1), Math.max(names.length, 1)).getFormulas();
+  const hasFormula = formulas.some(function (line) {
+    return line.some(function (f) { return String(f || '').trim() !== ''; });
+  });
+  if (hasFormula) return { ok: false, error: 'formula_in_terms' };
+
+  let moved = 0;
+  for (let i = 0; i < HEADERS.length; i++) if (names[i] !== HEADERS[i]) moved++;
+  if (!moved && names.length === HEADERS.length) {
+    applyColumnFormats(sheet);
+    return { ok: true, op: 'reorder', dry_run: false, moved: 0, added: added };
+  }
+
+  const index = {};
+  names.forEach(function (n, i) { if (n) index[n] = i; });
+  const width = Math.max(names.length, HEADERS.length);
+  const values = lastRow
+    ? sheet.getRange(1, 1, lastRow, width).getValues()
+    : [HEADERS.slice()];
+  const matrix = values.map(function (line) {
+    return HEADERS.map(function (h) { return index[h] === undefined ? '' : line[index[h]]; });
+  });
+  matrix[0] = HEADERS.slice();  // a column being added has no header cell to copy
+
+  sheet.getRange(1, 1, matrix.length, HEADERS.length).setValues(matrix);
+  if (width > HEADERS.length) {
+    sheet.getRange(1, HEADERS.length + 1, matrix.length, width - HEADERS.length).clearContent();
+  }
+  applyColumnFormats(sheet);
+  return { ok: true, op: 'reorder', dry_run: false, moved: moved, added: added };
+}
+
 // ------------------------------------------------------------------- operations
 
 function appendRow(input) {
@@ -173,6 +286,8 @@ function appendRow(input) {
 
   const key = normalizeKey(term);
   const sheet = getSheet();
+  const problem = assertColumns(sheet);
+  if (problem) return problem;
   const existing = findRow(key);
 
   if (existing) {
@@ -195,7 +310,7 @@ function appendRow(input) {
 
   const now = new Date();
   const rec = newRecord(input, now);
-  sheet.appendRow(HEADERS.map(function (h) { return rec[h] === undefined ? '' : rec[h]; }));
+  sheet.appendRow(headerNames(sheet).map(function (h) { return rec[h] === undefined ? '' : rec[h]; }));
   return { ok: true, op: 'append', created: true, duplicate: false, id: rec.id, row: pick(rec) };
 }
 
@@ -221,6 +336,9 @@ function appendMany(body) {
   if (items.length > MAX_BATCH) return { ok: false, error: 'too_many_items', max: MAX_BATCH };
 
   const sheet = getSheet();
+  const problem = assertColumns(sheet);
+  if (problem) return problem;
+  const names = headerNames(sheet);
   const index = {};
   readAll(sheet).forEach(function (x) { index[String(x.row.key)] = x; });
 
@@ -253,12 +371,12 @@ function appendMany(body) {
 
     const rec = newRecord(input, now);
     index[key] = { rowIndex: -1, row: rec };  // catches repeats inside the same batch
-    matrix.push(HEADERS.map(function (h) { return rec[h] === undefined ? '' : rec[h]; }));
+    matrix.push(names.map(function (h) { return rec[h] === undefined ? '' : rec[h]; }));
     created.push({ key: key, term: term, id: rec.id, meaning_vi: rec.meaning_vi });
   });
 
   if (matrix.length) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, matrix.length, HEADERS.length).setValues(matrix);
+    sheet.getRange(sheet.getLastRow() + 1, 1, matrix.length, names.length).setValues(matrix);
   }
   return { ok: true, op: 'append_many', created: created, duplicates: duplicates, errors: errors };
 }
@@ -278,11 +396,8 @@ function updateRow(body) {
   if (!found) return { ok: false, error: 'not_found', key: key };
 
   const sheet = getSheet();
-  const headers = headerNames(sheet);
-  const missing = WRITABLE.filter(function (f) {
-    return patch[f] !== undefined && headers.indexOf(f) < 0;
-  });
-  if (missing.length) return { ok: false, error: 'missing_header', header: missing[0] };
+  const problem = assertColumns(sheet);
+  if (problem) return problem;
 
   let touched = 0;
   WRITABLE.forEach(function (f) {
@@ -307,6 +422,8 @@ function deleteRow(body) {
   if (body.confirm !== true) return { ok: false, error: 'confirm_required' };
 
   const sheet = getSheet();
+  const problem = assertColumns(sheet);
+  if (problem) return problem;
   const found = findRow(key);
   if (!found) return { ok: false, error: 'not_found', key: key };
 

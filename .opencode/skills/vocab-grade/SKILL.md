@@ -84,8 +84,8 @@ Luật thêm:
 | `vi-en` | `vocab mark "<term>" --status known --direction vi` | `vocab mark "<term>" --status learning --direction vi` |
 
 - `?` → không ghi.
-- Mỗi từ một lệnh; `not_found` → báo, không thử lại. `missing_header` → bảo user thêm header
-  `status_vi` ở W1, đừng workaround.
+- Mỗi từ một lệnh; `not_found` → báo, không thử lại. `missing_header` → bảo user chạy
+  `vocab reorder --dry-run` rồi `--confirm` (thêm cột rỗng đúng chỗ), đừng workaround.
 - Không ghi gì vào cột C, không xoá dòng, không sửa nghĩa trong `terms`.
 - `unknown_op` / `sheet_not_found` → endpoint chạy `Code.gs` cũ: báo user dán lại file và
   Deploy → **New version**.

@@ -57,27 +57,30 @@ Endpoint live **không** tự cập nhật. Dán lại file trong Apps Script ed
 Manage deployments → Edit → New version** (chỉ Save là chưa đủ). Quên bước này thì CLI mới
 gặp op lạ sẽ báo `unknown_op`.
 
-## Nâng cấp lên bản hai chiều
+## Nâng cấp: thứ tự cột mới
 
-Bản này thêm chiều Việt→Anh, đổi layout thẻ và thêm một cột. Làm đúng thứ tự:
+Bản này đưa `terms` về thứ tự chuẩn (A `term` … W `id`) và cho endpoint đọc/ghi theo **tên
+header**. Làm đúng thứ tự:
 
-1. Trong `terms`, gõ `status_vi` vào **W1** (và đặt dropdown `new, learning, known` cho W2:W).
-2. Dán [`Code.gs`](../apps-script/Code.gs) mới → **Deploy → Manage deployments → Edit → New
-   version**.
-3. `vocab ping` — phải trả `ok: true`.
-4. Xoá bài làm cũ còn ở **cột B** của `Shuffle`/`Recheck`: từ bản này đáp án nằm ở cột C.
-5. `vocab recheck` một lần — lệnh xoá công thức cũ ở `Recheck!A1` và ghi bộ thẻ đến hạn đầu tiên.
+1. Dán [`Code.gs`](../apps-script/Code.gs) mới → **Deploy → Manage deployments → Edit → New
+   version**. Bước này an toàn dù cột còn thứ tự cũ: append đã ghi theo tên.
+2. `vocab ping` → `ok: true`; `vocab check "drift"` vẫn trả đúng nghĩa.
+3. `vocab reorder --dry-run` — so `current` với `target`. Có `cột lạ` thì xử lý tay trước.
+4. `vocab reorder --confirm` — cột move theo tên, cột thiếu được thêm rỗng đúng chỗ, dropdown
+   `status`/`status_vi` và format ngày của 3 cột thời gian được áp lại.
+5. Dán lại 3 công thức view bản theo tên trong [sheet.md](sheet.md#ba-tab-xem-lại-công-thức) vào
+   `Review`, `Words`, `Phrases` (công thức cũ dùng cột cố định nên sai sau khi move).
+6. `vocab check "drift"` (nghĩa + `status` + `status_vi`), `vocab draw --direction mixed --count 2`.
 
-Dữ liệu cũ dùng được ngay: `status_vi` trống được hiểu là `new`, nên mọi từ đều vào được pool
-Việt→Anh mà không cần backfill. Bỏ bước 1 thì `vocab mark --direction vi` báo `missing_header`
-(không ghi hụt).
+`updated_at` không bị chạm nên lịch ôn giữ nguyên. Rollback: File → Version history của Sheet.
+Dữ liệu cũ dùng được ngay: `status_vi` trống được hiểu là `new`, không cần backfill.
 
 ## Bảo mật
 
 | Mối đe doạ | Chặn bằng |
 |---|---|
 | Link Sheet lộ | Sheet Restricted, không share → link vô dụng |
-| URL Web App lộ | token 32B so sánh constant-time, allowlist 12 op (5 read-only), cap 1000 row/6h |
+| URL Web App lộ | token 32B so sánh constant-time, allowlist 13 op (5 read-only), cap 1000 row/6h |
 | Token bị commit | config ngoài repo (`~/.config`), 600, `.gitignore` chặn `config.json`/`.env` |
 | Script lạm quyền | chỉ `SpreadsheetApp` của đúng file, không `DriveApp` |
 | Token lộ thật | đổi `TOKEN` trong Script Properties + config; Sheet vẫn private nên dữ liệu không bị đọc |
@@ -108,9 +111,12 @@ editor còn một lớp nữa: chọn hàm `selftest` → Run → Logs phải l�
 | `error: daily_cap_reached` | >1000 row trong ~6h — chờ, hoặc nâng `DAILY_WRITE_CAP` |
 | `unknown_op` | endpoint chạy `Code.gs` cũ: dán lại file → Deploy → **New version** |
 | `delete` báo `not_found` | key sai hoặc dòng đã bị xoá — `vocab keys --plain` để xem key thật |
-| `error: confirm_required` | gọi `delete`/`clear_inbox` thẳng qua HTTP mà thiếu `confirm:true`; CLI luôn gửi kèm — riêng `vocab clear-inbox` cần cờ `--confirm` |
+| `error: confirm_required` | gọi `delete`/`clear_inbox`/`reorder` thẳng qua HTTP mà thiếu `confirm:true`; CLI luôn gửi kèm — riêng `vocab clear-inbox` và `vocab reorder` cần cờ `--confirm` |
 | `error: sheet_not_found` | `vocab sheet` gõ sai tên tab (`--name`), hoặc tab chưa tạo; `vocab draw` cần tab `Shuffle`, `vocab recheck` cần tab `Recheck` |
 | `error: no_candidates` | `draw`: mọi từ đã `known` ở chiều được rút; `recheck`: chưa có thẻ đến hạn — thêm từ mới hoặc `vocab mark` về `learning` |
-| `error: missing_header` | Sheet chưa có header `status_vi` ở W1 (bản hai chiều) — thêm ô đó rồi chạy lại |
+| `error: missing_header` | Sheet thiếu một header chuẩn (ví dụ `status_vi` sau khi kéo cột tay) — `vocab reorder --confirm` thêm lại cột rỗng đúng chỗ |
+| `error: unknown_header` | Có cột ngoài `HEADERS` đang chứa dữ liệu, nên `reorder` không dám move — chép dữ liệu đó vào cột hợp lệ hoặc xoá cột rồi chạy lại |
+| `error: formula_in_terms` | `terms` có ô công thức (thường do dán từ tab khác) — chuyển công thức sang tab view rồi chạy lại; op không flatten formula thành value |
+| `error: duplicate_header` | Hai cột trùng tên header — đổi tên/xoá một cột rồi chạy lại |
 | `too_many_items` | gửi >50 item trong 1 request — dùng `vocab import` (tự chia lô) |
 | Sửa `Code.gs` xong không thấy đổi | phải **Deploy → Manage deployments → Edit → New version** |
