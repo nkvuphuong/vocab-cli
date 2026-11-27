@@ -26,8 +26,9 @@ Năm cột đọc hằng ngày nằm ở A–E; `key`/`id` là cột máy dùng 
   (kéo tay thì dropdown không đi theo). Đừng đổi tên header, đừng xoá dòng (xoá thì `mark` báo
   `not_found`, không hỏng gì khác).
 - `status` là chiều **Anh→Việt**, `status_vi` là chiều **Việt→Anh**; mỗi trục `new` → `learning`
-  → `known`, độc lập nhau (một từ có thể `known` chiều này, `learning` chiều kia). Ô `status_vi`
-  trống nghĩa là `new` — dữ liệu cũ không cần backfill. Dropdown cho C2:C và D2:D:
+  → `known`, độc lập nhau (một từ có thể `known` chiều này, `learning` chiều kia). Dòng mới được
+  ghi `new` ở cả hai cột; ô trống chỉ còn ở dòng cũ và vẫn tính là `new`, không cần backfill.
+  Dropdown cho C2:C và D2:D:
   Data → Data validation → List of items → `new, learning, known`.
 - Nếu header `status_vi` chưa có, lệnh ghi chiều Việt→Anh trả `missing_header` chứ không ghi
   hụt. `vocab reorder --confirm` thêm cột đó (rỗng) đúng vị trí.

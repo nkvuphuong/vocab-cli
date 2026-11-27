@@ -215,7 +215,7 @@ check('appendMany writes all new rows with one batch', () => {
   eq(data.length, 3, 'sheet rows');
   eq(data[1][col('key')], 'drift', 'key col');
   eq(data[1][col('status')], 'new', 'status col');
-  eq(data[1][col('status_vi')], '', 'status_vi col');
+  eq(data[1][col('status_vi')], 'new', 'status_vi col');
 });
 
 check('appendMany dedupes against existing rows and bumps lookup_count', () => {
@@ -565,12 +565,13 @@ const reversedRows = (n) => mapRows(termRows(n), REVERSED);
 
 check('append writes by header name on a shuffled sheet', () => {
   const { api, data } = makeApi(mapRows([HEADER], REVERSED), 'tok');
-  const res = post(api, { token: 'tok', op: 'append_many', items: [row('drift', 'lệch')] });
+  const res = post(api, { token: 'tok', op: 'append_many',
+    items: [{ ...row('drift', 'lệch'), status_vi: 'learning' }] });
   eq(res.created.length, 1, 'created');
   eq(data[0], REVERSED, 'header untouched');
   eq(data[1][col('key', REVERSED)], 'drift', 'key under its own header');
   eq(data[1][col('status', REVERSED)], 'new', 'status under its own header');
-  eq(data[1][col('status_vi', REVERSED)], '', 'status_vi under its own header');
+  eq(data[1][col('status_vi', REVERSED)], 'learning', 'status_vi under its own header');
 });
 
 check('append refuses a sheet missing a canonical header', () => {

@@ -318,7 +318,7 @@ function newRecord(input, now) {
   const term = String(input.term || '').trim();
   const rec = {
     id: Utilities.getUuid(), key: normalizeKey(term), term: term,
-    status: 'new', lookup_count: 1,
+    status: 'new', status_vi: 'new', lookup_count: 1,
     created_at: now, updated_at: now, last_seen_at: now,
   };
   WRITABLE.forEach(function (f) {
