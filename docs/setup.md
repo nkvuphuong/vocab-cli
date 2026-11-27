@@ -57,12 +57,27 @@ Endpoint live **không** tự cập nhật. Dán lại file trong Apps Script ed
 Manage deployments → Edit → New version** (chỉ Save là chưa đủ). Quên bước này thì CLI mới
 gặp op lạ sẽ báo `unknown_op`.
 
+## Nâng cấp lên bản hai chiều
+
+Bản này thêm chiều Việt→Anh, đổi layout thẻ và thêm một cột. Làm đúng thứ tự:
+
+1. Trong `terms`, gõ `status_vi` vào **W1** (và đặt dropdown `new, learning, known` cho W2:W).
+2. Dán [`Code.gs`](../apps-script/Code.gs) mới → **Deploy → Manage deployments → Edit → New
+   version**.
+3. `vocab ping` — phải trả `ok: true`.
+4. Xoá bài làm cũ còn ở **cột B** của `Shuffle`/`Recheck`: từ bản này đáp án nằm ở cột C.
+5. `vocab recheck` một lần — lệnh xoá công thức cũ ở `Recheck!A1` và ghi bộ thẻ đến hạn đầu tiên.
+
+Dữ liệu cũ dùng được ngay: `status_vi` trống được hiểu là `new`, nên mọi từ đều vào được pool
+Việt→Anh mà không cần backfill. Bỏ bước 1 thì `vocab mark --direction vi` báo `missing_header`
+(không ghi hụt).
+
 ## Bảo mật
 
 | Mối đe doạ | Chặn bằng |
 |---|---|
 | Link Sheet lộ | Sheet Restricted, không share → link vô dụng |
-| URL Web App lộ | token 32B so sánh constant-time, allowlist 11 op (5 read-only), cap 1000 row/6h |
+| URL Web App lộ | token 32B so sánh constant-time, allowlist 12 op (5 read-only), cap 1000 row/6h |
 | Token bị commit | config ngoài repo (`~/.config`), 600, `.gitignore` chặn `config.json`/`.env` |
 | Script lạm quyền | chỉ `SpreadsheetApp` của đúng file, không `DriveApp` |
 | Token lộ thật | đổi `TOKEN` trong Script Properties + config; Sheet vẫn private nên dữ liệu không bị đọc |
@@ -94,7 +109,8 @@ editor còn một lớp nữa: chọn hàm `selftest` → Run → Logs phải l�
 | `unknown_op` | endpoint chạy `Code.gs` cũ: dán lại file → Deploy → **New version** |
 | `delete` báo `not_found` | key sai hoặc dòng đã bị xoá — `vocab keys --plain` để xem key thật |
 | `error: confirm_required` | gọi `delete`/`clear_inbox` thẳng qua HTTP mà thiếu `confirm:true`; CLI luôn gửi kèm — riêng `vocab clear-inbox` cần cờ `--confirm` |
-| `error: sheet_not_found` | `vocab sheet` gõ sai tên tab (`--name`), hoặc tab chưa tạo; `vocab draw` cần tab `Shuffle` |
-| `error: no_candidates` | mọi từ đã `known` — thêm từ mới hoặc `vocab mark` về `learning` |
+| `error: sheet_not_found` | `vocab sheet` gõ sai tên tab (`--name`), hoặc tab chưa tạo; `vocab draw` cần tab `Shuffle`, `vocab recheck` cần tab `Recheck` |
+| `error: no_candidates` | `draw`: mọi từ đã `known` ở chiều được rút; `recheck`: chưa có thẻ đến hạn — thêm từ mới hoặc `vocab mark` về `learning` |
+| `error: missing_header` | Sheet chưa có header `status_vi` ở W1 (bản hai chiều) — thêm ô đó rồi chạy lại |
 | `too_many_items` | gửi >50 item trong 1 request — dùng `vocab import` (tự chia lô) |
 | Sửa `Code.gs` xong không thấy đổi | phải **Deploy → Manage deployments → Edit → New version** |

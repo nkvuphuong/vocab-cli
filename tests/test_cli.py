@@ -147,7 +147,41 @@ class T4Other(unittest.TestCase):
         code, out, _ = run(["mark", "  Drift. ", "--status", "known"], fake)
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual(fake.calls[0]["key"], "drift")
+        self.assertEqual(fake.calls[0]["patch"], {"status": "known"})
         self.assertEqual(json.loads(out)["status"], "known")
+
+    def test_mark_vi_direction_patches_status_vi_only(self):
+        fake = FakeApi(update={"ok": True, "id": "id-1",
+                               "row": dict(ROW, status_vi="learning")})
+        code, out, _ = run(["mark", "drift", "--status", "learning", "--direction", "vi"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0]["patch"], {"status_vi": "learning"})
+        self.assertEqual(json.loads(out)["direction"], "vi")
+
+    def test_check_prompt_returns_matches(self):
+        fake = FakeApi(check={"ok": True, "op": "check", "prompt": "lệch chất lượng",
+                              "count": 1, "matches": [dict(ROW, status_vi="learning")]})
+        code, out, _ = run(["check", "--prompt", "lệch chất lượng"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        payload = json.loads(out)
+        self.assertEqual(payload["matches"][0]["term"], "drift")
+        self.assertEqual(payload["matches"][0]["status_vi"], "learning")
+        self.assertEqual(fake.calls[0], {"op": "check", "prompt": "lệch chất lượng"})
+
+    def test_check_prompt_not_found_exits_needs(self):
+        def nf(op, timeout=None, **payload):
+            raise api_module.ApiError("not_found", {"ok": False, "error": "not_found"})
+
+        code, out, _ = run(["check", "--prompt", "không có"], nf)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        self.assertEqual(json.loads(out)["error"], "not_found")
+
+    def test_check_without_terms_or_prompt_needs_info(self):
+        fake = FakeApi()
+        code, out, _ = run(["check"], fake)
+        self.assertEqual(code, cli.EXIT_NEEDS)
+        self.assertEqual(json.loads(out)["reason"], "missing_term")
+        self.assertEqual(fake.calls, [])
 
     def test_list_json(self):
         fake = FakeApi(list={"ok": True, "count": 1, "rows": [ROW]})
@@ -470,31 +504,34 @@ class T9Update(unittest.TestCase):
 
 
 class T10Sheet(unittest.TestCase):
-    """`vocab sheet` reads the review tab so answers can be graded."""
+    """`vocab sheet` reads a review tab so answers can be graded."""
 
     def fake(self):
         return FakeApi(read={"ok": True, "op": "read", "sheet": "Shuffle",
-                             "rows": [["drift", "lệch chất lượng"], ["rubric", ""]]})
+                             "rows": [["drift", "en-vi", "lệch chất lượng"],
+                                      ["rubric", "vi-en", ""]]})
 
-    def test_defaults_to_shuffle_and_prints_answers(self):
+    def test_defaults_to_shuffle_and_prints_direction(self):
         fake = self.fake()
         code, out, _ = run(["sheet"], fake)
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual(fake.calls[0], {"op": "read", "sheet": "Shuffle"})
         self.assertIn("drift", out)
         self.assertIn("lệch chất lượng", out)
+        self.assertIn("en-vi", out)
         self.assertIn("2 dòng · 1 có đáp án", out)
 
-    def test_json_shape(self):
+    def test_json_shape_for_card_tabs(self):
         code, out, _ = run(["sheet", "--name", "Recheck", "--json"], self.fake())
         self.assertEqual(code, cli.EXIT_OK)
         payload = json.loads(out)
         self.assertEqual(payload["sheet"], "Shuffle")  # whatever the endpoint reports
-        self.assertEqual(payload["rows"][0], {"term": "drift", "answer": "lệch chất lượng",
-                                              "note": ""})
-        self.assertEqual(payload["rows"][1], {"term": "rubric", "answer": "", "note": ""})
+        self.assertEqual(payload["rows"][0], {"prompt": "drift", "direction": "en-vi",
+                                              "answer": "lệch chất lượng"})
+        self.assertEqual(payload["rows"][1], {"prompt": "rubric", "direction": "vi-en",
+                                              "answer": ""})
 
-    def test_json_keeps_third_column_as_note(self):
+    def test_json_keeps_three_columns_for_other_tabs(self):
         fake = FakeApi(read={"ok": True, "op": "read", "sheet": "glossary",
                              "rows": [["asynchronously", "bất đồng bộ", "không dùng chạy nền"]]})
         code, out, _ = run(["sheet", "--name", "glossary", "--json"], fake)
@@ -526,26 +563,64 @@ class T11ClearInbox(unittest.TestCase):
 
 
 class T12Draw(unittest.TestCase):
-    """`vocab draw` ghi bộ từ mới vào Shuffle; cột A là value nên không tự xáo khi gõ B."""
+    """`vocab draw` ghi bộ thẻ vào Shuffle: prompt + chiều ở A/B, đáp án ở cột C."""
 
     def fake(self):
         return FakeApi(draw={"ok": True, "op": "draw", "sheet": "Shuffle", "count": 3,
-                             "terms": ["drift", "rubric", "accuracy floor"]})
+                             "items": [{"prompt": "drift", "direction": "en-vi"},
+                                       {"prompt": "ngưỡng sàn", "direction": "vi-en"},
+                                       {"prompt": "accuracy floor", "direction": "en-vi"}]})
 
-    def test_defaults_to_ten_and_lists_the_terms(self):
+    def test_defaults_to_ten_and_labels_each_direction(self):
         fake = self.fake()
         code, out, _ = run(["draw"], fake)
         self.assertEqual(code, cli.EXIT_OK)
-        self.assertEqual(fake.calls[0], {"op": "draw", "count": 10})
-        self.assertIn("1. drift", out)
-        self.assertIn("3. accuracy floor", out)
-        self.assertIn("3 từ · gõ nghĩa vào cột B", out)
+        self.assertEqual(fake.calls[0], {"op": "draw", "count": 10, "direction": "en"})
+        self.assertIn("1. [EN→VI] drift", out)
+        self.assertIn("2. [VI→EN] ngưỡng sàn", out)
+        self.assertIn("3 thẻ · ghi đáp án vào cột C", out)
 
-    def test_count_is_forwarded(self):
+    def test_count_and_direction_are_forwarded(self):
         fake = self.fake()
-        code, _, _ = run(["draw", "--count", "20"], fake)
+        code, _, _ = run(["draw", "--count", "20", "--direction", "mixed"], fake)
         self.assertEqual(code, cli.EXIT_OK)
-        self.assertEqual(fake.calls[0], {"op": "draw", "count": 20})
+        self.assertEqual(fake.calls[0], {"op": "draw", "count": 20, "direction": "mixed"})
+
+    def test_count_is_clamped_to_1_50(self):
+        fake = self.fake()
+        run(["draw", "--count", "999"], fake)
+        self.assertEqual(fake.calls[0]["count"], 50)
+        low = self.fake()
+        run(["draw", "--count", "0"], low)
+        self.assertEqual(low.calls[0]["count"], 1)
+
+    def test_unknown_direction_never_calls_the_api(self):
+        fake = self.fake()
+        with self.assertRaises(SystemExit):
+            run(["draw", "--direction", "fr"], fake)
+        self.assertEqual(fake.calls, [])
+
+
+class T13Recheck(unittest.TestCase):
+    """`vocab recheck` ghi thẻ đến hạn vào Recheck, mặc định cả hai chiều."""
+
+    def fake(self):
+        return FakeApi(recheck={"ok": True, "op": "recheck", "sheet": "Recheck", "count": 2,
+                                "items": [{"prompt": "drift", "direction": "en-vi"},
+                                          {"prompt": "lệch chất lượng", "direction": "vi-en"}]})
+
+    def test_defaults_to_mixed_and_mentions_column_c(self):
+        fake = self.fake()
+        code, out, _ = run(["recheck"], fake)
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(fake.calls[0], {"op": "recheck", "count": 10, "direction": "mixed"})
+        self.assertIn("[VI→EN] lệch chất lượng", out)
+        self.assertIn("2 thẻ · ghi đáp án vào cột C", out)
+
+    def test_direction_can_be_narrowed(self):
+        fake = self.fake()
+        run(["recheck", "--direction", "vi", "--count", "5"], fake)
+        self.assertEqual(fake.calls[0], {"op": "recheck", "count": 5, "direction": "vi"})
 
 
 if __name__ == "__main__":

@@ -1,17 +1,18 @@
 # Sheet: tab ôn tập, cột, glossary
 
 Sheet là UI duy nhất của tool: điện thoại mở Google Sheets, xem/sửa như bình thường. Agent chỉ
-ghi tab `terms` (và op `draw` ghi cột A của `Shuffle`); các tab còn lại là của bạn.
+ghi tab `terms`; hai ngoại lệ duy nhất là `vocab draw` và `vocab recheck`, mỗi lệnh ghi `A:B` của
+đúng tab `Shuffle` / `Recheck`. Các tab còn lại là của bạn.
 
 ## Tab `terms` — nơi lưu duy nhất
 
-22 cột, thứ tự cố định:
+23 cột, thứ tự cố định:
 
 ```
 A id · B key · C term · D type · E cefr · F pos · G domain · H ipa
 I meaning_short · J meaning_vi · K meaning_en · L example · M example_type
 N context_note · O source_type · P source_url · Q source_title · R status
-S lookup_count · T last_seen_at · U created_at · V updated_at
+S lookup_count · T last_seen_at · U created_at · V updated_at · W status_vi
 ```
 
 - `key` = `term` đã chuẩn hoá (lowercase, gộp space, bỏ dấu câu hai đầu) — **dedupe theo cột này**.
@@ -21,12 +22,16 @@ S lookup_count · T last_seen_at · U created_at · V updated_at
 - **Thứ tự cột phải khớp `HEADERS`** trong `Code.gs` vì `append` ghi theo vị trí; đọc/ghi một ô
   thì theo tên header. Chèn cột phải sửa Sheet và `HEADERS` cùng lúc. Đừng đổi tên header,
   đừng xoá dòng (xoá thì `mark` báo `not_found`, không hỏng gì khác).
-- `status`: `new` → `learning` → `known`. Dropdown cho R2:R: Data → Data validation →
-  List of items → `new, learning, known`.
+- `status` là chiều **Anh→Việt**, `status_vi` là chiều **Việt→Anh**; mỗi trục `new` → `learning`
+  → `known`, độc lập nhau (một từ có thể `known` chiều này, `learning` chiều kia). Ô `status_vi`
+  trống nghĩa là `new` — dữ liệu cũ không cần backfill. Dropdown cho R2:R và W2:W:
+  Data → Data validation → List of items → `new, learning, known`.
+- Nếu header `status_vi` chưa có ở W1, lệnh ghi chiều Việt→Anh trả `missing_header` chứ không ghi
+  hụt. Thêm header là xong.
 
-## Bốn tab xem lại
+## Ba tab xem lại (công thức)
 
-Tạo 4 tab, dán công thức vào ô A1. Đây là **view**, không phải nơi lưu — muốn đổi trạng thái
+Tạo 3 tab, dán công thức vào ô A1. Đây là **view**, không phải nơi lưu — muốn đổi trạng thái
 thì dùng `vocab mark`, đừng sửa trong các tab này.
 
 **Tab `Review`** — từ chưa thuộc, mới gặp gần đây trước:
@@ -46,32 +51,27 @@ thì dùng `vocab mark`, đừng sửa trong các tab này.
 Hai tab này dựa vào `key` sau chuẩn hoá: `high-stakes` nằm ở `Words` (một từ ghép),
 `back up` / `at any price` nằm ở `Phrases`.
 
-**Tab `Recheck`** — từ đã học nhưng đến hạn ôn lại (learning 3 ngày, known 30 ngày), cũ nhất trước:
-```
-=IFERROR(ARRAY_CONSTRAIN(CHOOSECOLS(SORT(FILTER(terms!A2:V,(terms!U2:U<>"")*(((terms!R2:R="learning")*(TODAY()-terms!U2:U>=3))+((terms!R2:R="known")*(TODAY()-terms!U2:U>=30)))),21,TRUE),3),10,1),"nothing due")
-```
-`U` là `updated_at` — GAS ghi ngày thật mỗi lần `vocab mark`, nên nó là đồng hồ ôn tập. Muốn
-nhịp khác thì sửa `3` và `30` trong công thức.
+**Tab `Recheck`** — không còn công thức. Bộ thẻ đến hạn do `vocab recheck` ghi vào (xem
+[hai tab thẻ](#hai-tab-thẻ-shuffle-và-recheck)). Lần đầu chạy lệnh này, công thức cũ ở `A1` bị xoá.
 
-> Công thức trên dùng `,` làm dấu ngăn cách tham số (locale mặc định). Nếu Sheet ở locale dùng
-> `;` (vi_VN), đổi **mọi** `,` thành `;`.
+## Hai tab thẻ: `Shuffle` và `Recheck`
 
-## Tab `Shuffle` — không dùng công thức
-
-Tab `Shuffle` để trống (chỉ cần tồn tại). Bộ từ do `vocab draw` chọn ngẫu nhiên và ghi **value**
-vào cột A, rồi bạn gõ đáp án vào cột B.
+Cả hai tab dùng **cùng một layout**, chỉ khác nguồn thẻ:
 
 ```
-vocab draw              # 10 từ vào A1:A10, xoá đáp án cũ ở cột B
-vocab draw --count 20   # endpoint chặn 1..50
+A = prompt                     B = en-vi | vi-en        C = bài làm của bạn
+   en-vi: từ tiếng Anh            chiều học               gõ câu trả lời ở đây
+   vi-en: gloss tiếng Việt
 ```
 
-- Cột A là value tĩnh, không phải `RANDARRAY`/`FILTER`: gõ/lưu đáp án ở B hay `vocab mark` đều
-  **không** làm từ xê dịch. Bộ từ chỉ đổi khi chạy lại `vocab draw`.
-- Lần đầu chạy trên Sheet còn công thức `RANDARRAY` cũ ở A1: `draw` xoá luôn công thức đó
-  (nó ghi đè `A:B`).
-- Pool: `term` khác rỗng và `status <> known` — giống công thức cũ.
-- Muốn xem thêm IPA/nghĩa thì mở `Review`/`terms`, đừng thêm cột vào `Shuffle`.
+- `Shuffle` = pool **chưa thuộc** (`status`/`status_vi` khác `known`). `vocab draw` ghi vào đây.
+- `Recheck` = pool **đến hạn**: `learning` sau 3 ngày, `known` sau 30 ngày, tính từ `updated_at`
+  và theo từng chiều. `vocab recheck` ghi vào đây, mặc định trộn cả hai chiều.
+- Cả hai lệnh xoá `A:C` trước khi ghi → bộ thẻ cũ và đáp án cũ mất. Chỉ chạy khi bạn yêu cầu.
+- Cột A/B là value tĩnh, không phải công thức: gõ đáp án ở C hay `vocab mark` đều **không** làm
+  thẻ xê dịch. Bộ thẻ chỉ đổi khi chạy lại lệnh.
+- `--direction en|vi|mixed` (mặc định `en` cho `draw`, `mixed` cho `recheck`); `--count` 1..50.
+- Lần đầu chạy trên `Shuffle` còn công thức `RANDARRAY` cũ ở A1: lệnh xoá luôn công thức đó.
 
 ## Tab `glossary` (tuỳ chọn)
 

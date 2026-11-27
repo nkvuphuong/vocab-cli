@@ -12,17 +12,18 @@ EXIT_API = 1
 EXIT_NEEDS = 2  # caller must supply more info; nothing was written
 
 STATUSES = ["new", "learning", "known"]
+DIRECTIONS = ["en", "vi", "mixed"]
 TYPES = ["word", "phrase", "idiom", "phrasal_verb", "collocation", "abbrev", "tech_term",
          "pattern"]
 EXAMPLE_TYPES = ["source", "generated"]
 SOURCE_TYPES = ["url", "text", "term"]
 
 SUMMARY_FIELDS = ["term", "key", "type", "cefr", "domain", "ipa", "meaning_short",
-                  "meaning_vi", "status", "example", "source_url", "id"]
+                  "meaning_vi", "status", "status_vi", "example", "source_url", "id"]
 
 WRITABLE = ["type", "cefr", "pos", "domain", "ipa", "meaning_short", "meaning_vi",
             "meaning_en", "example", "example_type", "context_note", "source_type",
-            "source_url", "source_title", "status"]
+            "source_url", "source_title", "status", "status_vi"]
 
 BATCH = 50  # must match MAX_BATCH in apps-script/Code.gs
 
@@ -197,6 +198,10 @@ def cmd_import(args):
 
 
 def cmd_check(args):
+    if args.prompt is not None:
+        return _check_prompt(args.prompt)
+    if not args.terms:
+        return _needs("missing_term")
     results = []
     for term in args.terms:
         result = api.call("check", term=term.strip())
@@ -208,6 +213,23 @@ def cmd_check(args):
         _emit({"ok": True, **results[0]})
     else:
         _emit({"ok": True, "count": len(results), "results": results})
+    return EXIT_OK
+
+
+def _check_prompt(prompt):
+    """Reverse lookup for vi→en cards: a Vietnamese gloss in, the stored term out."""
+    if not prompt.strip():
+        return _needs("missing_prompt")
+    try:
+        result = api.call("check", prompt=prompt.strip())
+    except api.ApiError as err:
+        if str(err) != "not_found":
+            raise
+        _emit({"ok": False, "error": "not_found", "prompt": prompt})
+        return EXIT_NEEDS
+    fields = ("term", "meaning_short", "meaning_vi", "status", "status_vi")
+    matches = [{f: m.get(f, "") for f in fields} for m in result.get("matches", [])]
+    _emit({"ok": True, "prompt": prompt, "count": len(matches), "matches": matches})
     return EXIT_OK
 
 
@@ -285,36 +307,66 @@ def cmd_mark(args):
         return _needs("missing_term")
     if args.status not in STATUSES:
         return _needs("invalid_status", allowed=STATUSES)
-    result = api.call("update", key=normalize_key(term), patch={"status": args.status})
+    field = "status_vi" if args.direction == "vi" else "status"
+    result = api.call("update", key=normalize_key(term), patch={field: args.status})
     _emit({"ok": True, "term": result["row"].get("term", term),
-           "status": result["row"].get("status", ""), "id": result.get("id", "")})
+           "direction": args.direction,
+           "status": result["row"].get("status", ""),
+           "status_vi": result["row"].get("status_vi", ""), "id": result.get("id", "")})
     return EXIT_OK
 
 
 def cmd_sheet(args):
-    """Prints a review tab (A = term, B = the answer the user typed) so it can be graded."""
+    """Prints a review tab: card tabs have (prompt, direction, answer) in A/B/C."""
     result = api.call("read", sheet=args.name)
     raw = [r for r in result.get("rows", []) if r and str(r[0]).strip()]
-    rows = [[i + 1, str(r[0]), str(r[1]) if len(r) > 1 else ""]
-            for i, r in enumerate(raw)]
+    card = args.name.strip().lower() in ("shuffle", "recheck")
+
     if args.json:
+        rows = []
+        for r in raw:
+            if card:
+                rows.append({"prompt": str(r[0]),
+                             "direction": str(r[1]) if len(r) > 1 else "",
+                             "answer": str(r[2]) if len(r) > 2 else ""})
+            else:
+                rows.append({"term": str(r[0]),
+                             "answer": str(r[1]) if len(r) > 1 else "",
+                             "note": str(r[2]) if len(r) > 2 else ""})
         _emit({"ok": True, "sheet": result.get("sheet", args.name), "count": len(rows),
-               "rows": [{"term": str(r[0]), "answer": str(r[1]) if len(r) > 1 else "",
-                         "note": str(r[2]) if len(r) > 2 else ""} for r in raw]})
+               "rows": rows})
         return EXIT_OK
-    _table(["#", "term", "bạn viết"], rows)
-    answered = sum(1 for r in rows if r[2].strip())
-    print(f"{len(rows)} dòng · {answered} có đáp án")
+
+    if card:
+        table = [[i + 1, str(r[0]), str(r[2]) if len(r) > 2 else "",
+                  str(r[1]) if len(r) > 1 else ""] for i, r in enumerate(raw)]
+        _table(["#", "prompt", "bạn viết", "chiều"], table)
+        answered = sum(1 for r in table if str(r[2]).strip())
+    else:
+        table = [[i + 1, str(r[0]), str(r[1]) if len(r) > 1 else ""]
+                 for i, r in enumerate(raw)]
+        _table(["#", "term", "bạn viết"], table)
+        answered = sum(1 for r in table if str(r[2]).strip())
+    print(f"{len(table)} dòng · {answered} có đáp án")
     return EXIT_OK
 
 
 def cmd_draw(args):
-    """Fills Shuffle column A with a fresh random set of terms; clears column B."""
-    result = api.call("draw", count=args.count)
-    terms = result.get("terms", [])
-    for i, term in enumerate(terms, 1):
-        print(f"{i:>2}. {term}")
-    print(f"{len(terms)} từ · gõ nghĩa vào cột B, đừng sửa cột A")
+    return _cards(args, "draw")
+
+
+def cmd_recheck(args):
+    return _cards(args, "recheck")
+
+
+def _cards(args, op):
+    """Writes one batch of review cards; prints each prompt with its direction."""
+    result = api.call(op, count=min(max(args.count, 1), 50), direction=args.direction)
+    items = result.get("items", [])
+    for i, item in enumerate(items, 1):
+        label = "EN→VI" if item.get("direction") == "en-vi" else "VI→EN"
+        print(f"{i:>2}. [{label}] {item.get('prompt', '')}")
+    print(f"{len(items)} thẻ · ghi đáp án vào cột C")
     return EXIT_OK
 
 
@@ -410,7 +462,8 @@ def build_parser():
     imp.set_defaults(func=cmd_import)
 
     check = sub.add_parser("check", help="does this term already exist?")
-    check.add_argument("terms", nargs="+")
+    check.add_argument("terms", nargs="*")
+    check.add_argument("--prompt", help="reverse lookup: a meaning_short gloss → term")
     check.set_defaults(func=cmd_check)
 
     keys = sub.add_parser("keys", help="list every saved key (cheap pre-filter)")
@@ -433,6 +486,8 @@ def build_parser():
     mark = sub.add_parser("mark", help="set review status")
     mark.add_argument("term")
     mark.add_argument("--status", required=True)  # validated in cmd_mark for a JSON error
+    mark.add_argument("--direction", choices=("en", "vi"), default="en",
+                      help="trục trạng thái: en = status, vi = status_vi")
     mark.set_defaults(func=cmd_mark)
 
     ping = sub.add_parser("ping", help="check endpoint + token")
@@ -443,9 +498,15 @@ def build_parser():
     sheet.add_argument("--json", action="store_true")
     sheet.set_defaults(func=cmd_sheet)
 
-    draw = sub.add_parser("draw", help="write N random terms into the Shuffle tab")
+    draw = sub.add_parser("draw", help="write N new cards into the Shuffle tab")
     draw.add_argument("--count", type=int, default=10)
+    draw.add_argument("--direction", choices=DIRECTIONS, default="en")
     draw.set_defaults(func=cmd_draw)
+
+    recheck_parser = sub.add_parser("recheck", help="write due cards into the Recheck tab")
+    recheck_parser.add_argument("--count", type=int, default=10)
+    recheck_parser.add_argument("--direction", choices=DIRECTIONS, default="mixed")
+    recheck_parser.set_defaults(func=cmd_recheck)
 
     clear = sub.add_parser("clear-inbox",
                            help="delete inbox rows whose term is already saved in terms")

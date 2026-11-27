@@ -9,21 +9,22 @@
 const SHEET_NAME = 'terms';
 const INBOX_NAME = 'inbox';
 const SHUFFLE_NAME = 'Shuffle';
+const RECHECK_NAME = 'Recheck';
 
 const HEADERS = [
   'id', 'key', 'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short',
   'meaning_vi', 'meaning_en', 'example', 'example_type', 'context_note',
   'source_type', 'source_url', 'source_title', 'status', 'lookup_count',
-  'last_seen_at', 'created_at', 'updated_at',
+  'last_seen_at', 'created_at', 'updated_at', 'status_vi',
 ];
 
 const OPS = ['ping', 'check', 'keys', 'append', 'append_many', 'update', 'delete', 'list', 'read',
-  'draw', 'clear_inbox'];
+  'draw', 'recheck', 'clear_inbox'];
 const READ_ONLY_OPS = ['ping', 'check', 'keys', 'list', 'read'];
 const WRITABLE = [
   'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short', 'meaning_vi',
   'meaning_en', 'example', 'example_type', 'context_note', 'source_type',
-  'source_url', 'source_title', 'status',
+  'source_url', 'source_title', 'status', 'status_vi',
 ];
 
 // shortcut: CacheService caps TTL at 6h, so the daily cap resets every ~6h.
@@ -70,6 +71,7 @@ function dispatch(op, body) {
     return { ok: true, op: op, sheet: SHEET_NAME, rows: Math.max(0, sheet.getLastRow() - 1) };
   }
   if (op === 'check') {
+    if (body.prompt !== undefined) return checkPrompt(body.prompt);
     const key = normalizeKey(body.term || body.key || '');
     const found = findRow(key);
     return { ok: true, op: op, key: key, exists: !!found, row: found ? found.row : null };
@@ -82,12 +84,33 @@ function dispatch(op, body) {
   if (op === 'list') return listRows(body);
   if (op === 'read') return readTab(body);
   if (op === 'draw') return draw(body);
+  if (op === 'recheck') return recheck(body);
   if (op === 'clear_inbox') return clearInbox(body);
   return { ok: false, error: 'unknown_op' };
 }
 
-// Raw cell values of any tab, so the grading skill can read the answers the user
-// typed into Shuffle/Recheck column B. Read-only, no writes, no range parsing.
+// Reverse lookup for the vi→en direction: the prompt is a `meaning_short` variant,
+// the answer is `term`. Read-only, no writes.
+function checkPrompt(prompt) {
+  const key = normalizeKey(prompt);
+  if (!key) return { ok: false, error: 'missing_prompt' };
+
+  const matches = [];
+  readAll(getSheet()).forEach(function (x) {
+    const gloss = String(x.row.meaning_short || '');
+    const variants = gloss.split('·');
+    variants.push(gloss);
+    for (let i = 0; i < variants.length; i++) {
+      if (normalizeKey(variants[i]) === key) { matches.push(pick(x.row)); return; }
+    }
+  });
+  if (!matches.length) return { ok: false, error: 'not_found', prompt: prompt };
+  return { ok: true, op: 'check', prompt: prompt, count: matches.length, matches: matches };
+}
+
+// Raw cell values of any tab, so the grading skill can read the prompts, the
+// direction markers and the answers typed into Shuffle/Recheck column C. Read-only,
+// no writes, no range parsing.
 function readTab(body) {
   const name = String(body.sheet || SHEET_NAME);
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
@@ -131,9 +154,14 @@ function findRow(key) {
 }
 
 function setCell(sheet, rowIndex, headerName, value) {
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
-  const col = headers.indexOf(headerName);
-  if (col >= 0) sheet.getRange(rowIndex, col + 1).setValue(value);
+  const col = headerNames(sheet).indexOf(headerName);
+  if (col < 0) return false;
+  sheet.getRange(rowIndex, col + 1).setValue(value);
+  return true;
+}
+
+function headerNames(sheet) {
+  return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
 }
 
 // ------------------------------------------------------------------- operations
@@ -250,6 +278,12 @@ function updateRow(body) {
   if (!found) return { ok: false, error: 'not_found', key: key };
 
   const sheet = getSheet();
+  const headers = headerNames(sheet);
+  const missing = WRITABLE.filter(function (f) {
+    return patch[f] !== undefined && headers.indexOf(f) < 0;
+  });
+  if (missing.length) return { ok: false, error: 'missing_header', header: missing[0] };
+
   let touched = 0;
   WRITABLE.forEach(function (f) {
     if (patch[f] === undefined) return;
@@ -283,33 +317,124 @@ function deleteRow(body) {
   };
 }
 
-// Writes drawn terms as plain values: a live RANDARRAY formula reshuffled on every
-// edit, so typing an answer in column B moved the terms under it. Plain values also
-// survive a `mark` (status change) — nothing to recalculate.
-// Destructive: overwrites Shuffle column A (and the old formula there) and clears B.
-function draw(body) {
+// ---------------------------------------------------------------- review cards
+
+// Shuffle and Recheck share one card layout: A = prompt, B = direction marker,
+// C = the answer the user types. Values are plain (no formulas) so typing an answer
+// or a `mark` never moves the prompts. Only `draw` and `recheck` write outside
+// `terms`, each into one hard-coded tab.
+const DUE_DAYS = { learning: 3, known: 30 };
+
+function cardLimit(body) {
   let want = parseInt(body.count, 10);
   if (isNaN(want)) want = DRAW_DEFAULT;
-  const limit = Math.min(Math.max(want, 1), DRAW_MAX);
-  const shuffle = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHUFFLE_NAME);
-  if (!shuffle) return { ok: false, error: 'sheet_not_found', sheet: SHUFFLE_NAME };
+  return Math.min(Math.max(want, 1), DRAW_MAX);
+}
 
-  // Same pool as the old Shuffle formula: has a term, not learned yet.
-  const pool = readAll(getSheet())
-    .filter(function (x) { return String(x.row.term || '').trim() && String(x.row.status) !== 'known'; })
-    .map(function (x) { return String(x.row.term); });
-  if (!pool.length) return { ok: false, error: 'no_candidates' };
-
-  for (let i = pool.length - 1; i > 0; i--) {  // Fisher-Yates, uniform
+function shuffleCards(cards) {
+  const out = cards.slice();
+  for (let i = out.length - 1; i > 0; i--) {  // Fisher-Yates, uniform
     const j = Math.floor(Math.random() * (i + 1));
-    const swap = pool[i]; pool[i] = pool[j]; pool[j] = swap;
+    const swap = out[i]; out[i] = out[j]; out[j] = swap;
   }
-  const terms = pool.slice(0, limit);
+  return out;
+}
 
-  shuffle.getRange('A:B').clearContent();
-  shuffle.getRange(1, 1, terms.length, 1)
-    .setValues(terms.map(function (t) { return [t]; }));
-  return { ok: true, op: 'draw', sheet: SHUFFLE_NAME, count: terms.length, terms: terms };
+// One candidate per term per direction. The vi→en prompt is `meaning_short`, deduped
+// so two terms sharing a gloss can never produce an ambiguous card.
+// `due` false = the Shuffle pool (not learned yet), true = the Recheck pool (age).
+// shortcut: both directions read the shared `updated_at`, so marking one direction
+// postpones the other. Add updated_at_vi only if the vi pool starves.
+function cardPools(due) {
+  const now = new Date();
+  const seenPrompt = {};
+  const out = { en: [], vi: [] };
+
+  readAll(getSheet()).forEach(function (x) {
+    const term = String(x.row.term || '').trim();
+    if (!term) return;
+    const gloss = String(x.row.meaning_short || '').trim();
+    const atMs = new Date(x.row.updated_at).getTime();
+
+    const ready = function (status) {
+      const days = DUE_DAYS[status] || 0;
+      if (!due) return status !== 'known';
+      if (!days || isNaN(atMs)) return false;
+      return (now.getTime() - atMs) / 86400000 >= days;
+    };
+
+    const key = String(x.row.key || '');
+    if (ready(String(x.row.status || 'new'))) {
+      out.en.push({ key: key, prompt: term, direction: 'en-vi' });
+    }
+    const promptKey = normalizeKey(gloss);
+    if (gloss && !seenPrompt[promptKey] && ready(String(x.row.status_vi || 'new'))) {
+      seenPrompt[promptKey] = true;
+      out.vi.push({ key: key, prompt: gloss, direction: 'vi-en' });
+    }
+  });
+  return out;
+}
+
+// `oncePerTerm` = true for draw (one card per term), false for recheck (both
+// directions of a due term are separate reviews and both must appear).
+function pickCards(body, pools, oncePerTerm) {
+  const limit = cardLimit(body);
+  const direction = String(body.direction || 'en');
+  if (direction === 'vi') return shuffleCards(pools.vi).slice(0, limit);
+  if (direction !== 'mixed') return shuffleCards(pools.en).slice(0, limit);
+
+  const half = Math.ceil(limit / 2);
+  const out = [];
+  const seen = {};
+  // draw dedupes by term (one card per term); recheck dedupes per term+direction,
+  // so a term due in both directions yields two cards.
+  const stamp = function (card) {
+    return oncePerTerm ? card.key : card.key + '|' + card.direction;
+  };
+  const take = function (pool, n) {
+    n = Math.min(n, limit - out.length);
+    for (let i = 0; i < pool.length && n > 0; i++) {
+      const id = stamp(pool[i]);
+      if (seen[id]) continue;
+      seen[id] = true;
+      out.push(pool[i]);
+      n--;
+    }
+  };
+  const en = shuffleCards(pools.en);
+  const vi = shuffleCards(pools.vi);
+  take(en, half);
+  take(vi, half);
+  take(en, limit - out.length);  // one pool short: fill from the other
+  take(vi, limit - out.length);
+  return shuffleCards(out);
+}
+
+function writeCards(sheet, op, cards) {
+  if (!cards.length) return { ok: false, error: 'no_candidates' };
+  sheet.getRange('A:C').clearContent();
+  sheet.getRange(1, 1, cards.length, 2)
+    .setValues(cards.map(function (c) { return [c.prompt, c.direction]; }));
+  return {
+    ok: true, op: op, sheet: sheet.getName(), count: cards.length,
+    items: cards.map(function (c) { return { prompt: c.prompt, direction: c.direction }; }),
+  };
+}
+
+// Destructive: overwrites A:C of Shuffle (prompts, markers and old answers).
+function draw(body) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHUFFLE_NAME);
+  if (!sheet) return { ok: false, error: 'sheet_not_found', sheet: SHUFFLE_NAME };
+  return writeCards(sheet, 'draw', pickCards(body, cardPools(false), true));
+}
+
+// Destructive: overwrites A:C of Recheck. Replaces the old live formula, which had
+// to reflow on every `mark` and dragged the answers out of line.
+function recheck(body) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(RECHECK_NAME);
+  if (!sheet) return { ok: false, error: 'sheet_not_found', sheet: RECHECK_NAME };
+  return writeCards(sheet, 'recheck', pickCards(body, cardPools(true), false));
 }
 
 // Destructive but narrow: only the `inbox` tab, and only rows whose term is already

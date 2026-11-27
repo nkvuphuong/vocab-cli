@@ -28,19 +28,20 @@ vẫn phải hỏi lại từ đầu.
 flowchart TD
     src["Nguồn<br/>URL · đoạn văn · 1 từ"] --> agent["Agent trong phiên chat<br/>trích từ, soạn nghĩa + IPA"]
     agent --> cli["vocab import<br/>dedupe theo key, chia lô 50"]
-    agent --> draw["vocab draw<br/>bộ từ ngẫu nhiên"]
+    agent --> draw["vocab draw / recheck<br/>thẻ hai chiều"]
     cli -->|"HTTPS + token"| gas["Apps Script<br/>token · allowlist op · lock"]
     draw -->|"HTTPS + token"| gas
     gas -->|"ghi · sửa · xoá"| sheet[("Google Sheet private")]
     sheet --> tabs["Tab Review · Shuffle · Recheck ·<br/>Words · Phrases"]
     tabs --> you(["Ôn trên điện thoại"])
-    you -->|"gõ đáp án vào cột B"| grade["Agent chấm bài<br/>theo nghĩa, không so chuỗi"]
-    grade -->|"vocab mark<br/>known / learning"| gas
+    you -->|"gõ đáp án vào cột C"| grade["Agent chấm bài<br/>theo nghĩa, theo từng chiều"]
+    grade -->|"vocab mark --direction<br/>known / learning"| gas
 ```
 
 Gặp lại từ cũ thì không tạo dòng mới: chỉ `lookup_count + 1`, nên Sheet tự cho biết từ nào đáng
-ôn lại. Cột A của `Shuffle` là **value** do `vocab draw` ghi, không phải công thức — gõ đáp án
-ở cột B hay chấm bài đều không làm từ xê dịch.
+ôn lại. `Shuffle`/`Recheck` dùng chung một layout: cột A là prompt, cột B là chiều (`en-vi` hoặc
+`vi-en`), cột C là đáp án — tất cả là **value** do lệnh ghi, nên gõ đáp án hay chấm bài đều không
+làm thẻ xê dịch.
 
 ## Bắt đầu
 
@@ -62,7 +63,8 @@ Chi tiết từng bước, bảo mật, troubleshoot: [docs/setup.md](docs/setup
 > "lưu `accuracy floor`"  ← từ trần, agent sẽ hỏi 1 câu để chọn nghĩa
 > "điền inbox"            ← từ bạn đã gõ sẵn vào tab `inbox`
 > "trộn bài"              ← rút bộ từ mới vào tab `Shuffle`
-> "chấm bài"              ← chấm đáp án bạn gõ trong `Shuffle`/`Recheck`
+> "ôn lại"                ← gom thẻ đến hạn vào tab `Recheck`
+> "chấm bài"              ← chấm đáp án bạn gõ ở cột C của `Shuffle`/`Recheck`
 
 Agent đọc nguồn, tự trích từ/cụm từ đáng lưu, tự viết nghĩa + IPA + câu ví dụ, rồi gọi
 `vocab import` một lần và trả về bảng:
@@ -82,6 +84,7 @@ Bạn **không** cần cung cấp nghĩa, phiên âm hay ví dụ. Không giới
 | Lưu từ từ nguồn | "lưu từ vựng từ …" | [docs/workflows.md](docs/workflows.md#lưu-từ-mới) |
 | Điền từ bạn gõ trong Sheet | "điền inbox" | [docs/workflows.md](docs/workflows.md#điền-inbox) |
 | Rút bộ từ ôn | "trộn bài" | [docs/workflows.md](docs/workflows.md#trộn-bài) |
+| Gom thẻ đến hạn | "ôn lại" | [docs/workflows.md](docs/workflows.md#trộn-bài) |
 | Chấm đáp án | "chấm bài" | [docs/workflows.md](docs/workflows.md#chấm-bài) |
 | Sửa nghĩa/gloss | "sửa nghĩa của X" | [docs/commands.md](docs/commands.md) |
 
@@ -90,10 +93,13 @@ Bạn **không** cần cung cấp nghĩa, phiên âm hay ví dụ. Không giới
 ```bash
 vocab import --file rows.json        # ghi hàng loạt (đường dẫn chính)
 vocab check "drift" "accuracy floor"
+vocab check --prompt "lệch chất lượng"   # gloss tiếng Việt → term
 vocab list --status new --domain evals
 vocab mark drift --status learning
-vocab sheet --name Shuffle           # đọc đáp án cột B
-vocab draw [--count 20]              # ghi bộ từ vào Shuffle!A
+vocab mark drift --status known --direction vi
+vocab sheet --name Shuffle           # đọc prompt + chiều (B) + đáp án (C)
+vocab draw [--count 20] [--direction mixed]
+vocab recheck                        # thẻ đến hạn, mặc định trộn hai chiều
 vocab update --file glosses.json     # sửa field dòng đã có
 vocab clear-inbox shovel --confirm   # dọn tab inbox
 vocab delete "block a merge"         # xoá hẳn (không hoàn tác)

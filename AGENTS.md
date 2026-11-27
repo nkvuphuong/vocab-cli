@@ -16,8 +16,9 @@ từ repo root) hoặc `<repo>/bin/vocab`.
 | "lưu từ vựng từ `<URL/đoạn văn>`" | trích ứng viên → soạn đủ cột → `vocab import` | `vocab-capture` |
 | "lưu `<một từ/cụm>`" | chưa có ngữ cảnh → hỏi 1 câu chọn nghĩa → `vocab import` | `vocab-capture` mục 3 |
 | "điền inbox" | `vocab sheet --name inbox --json` → `vocab check` từng từ → soạn → `vocab import` → **hỏi** → `vocab clear-inbox … --confirm` | `vocab-capture` mục 0 |
-| "chấm bài" | `vocab sheet --name Shuffle/Recheck` → `vocab check` → `vocab mark` | `vocab-grade` |
-| "trộn bài" / "rút 10 từ" | `vocab draw [--count N]` → hiện danh sách | `vocab-draw` |
+| "chấm bài" | `vocab sheet --name Shuffle/Recheck` → `vocab check` (en-vi) / `check --prompt` (vi-en) → `vocab mark --direction` | `vocab-grade` |
+| "trộn bài" / "rút 10 từ" | `vocab draw [--count N] [--direction en\|vi\|mixed]` → hiện danh sách | `vocab-draw` |
+| "ôn lại" / "có gì đến hạn" | `vocab recheck [--count N] [--direction …]` → hiện danh sách | `vocab-draw` |
 | "sửa nghĩa/gloss của X" | `vocab update --file` (không `import`, không sửa tay Sheet) | `vocab-capture` mục 4 |
 
 Lệnh/exit code và luồng từng prompt có trong `docs/commands.md` và `docs/workflows.md`;
@@ -38,10 +39,11 @@ Deploy → Manage deployments → Edit → **New version**.
 
 - **Không bao giờ** đưa token/endpoint vào repo hay vào lệnh shell. Config ở
   `~/.config/vocab-cli/config.json` (600, ngoài repo).
-- Không chèn cột, không ghi ra ngoài `terms`: `terms` là tab duy nhất agent ghi nội dung;
-  `inbox`, `Recheck` và cột B của `Shuffle` là tab user tự gõ — agent đọc qua
-  `vocab sheet --name <tab>`. Ngoại lệ duy nhất là op `draw`: ghi `term` vào cột A của
-  `Shuffle` dưới dạng value (không công thức) sau khi xoá `A:B`.
+- Không ghi ra ngoài `terms`, trừ hai op thẻ: `terms` là tab duy nhất agent ghi nội dung;
+  `inbox`, `Recheck`, `Shuffle` là tab của user — agent đọc qua `vocab sheet --name <tab>`.
+  Hai ngoại lệ duy nhất, mỗi op chỉ chạm một tab hard-code:
+  `draw` ghi `Shuffle!A:B`, `recheck` ghi `Recheck!A:B` (value, không công thức), cả hai xoá
+  `A:C` trước khi ghi. Không mở đường ghi nào khác.
   Chỉ `inbox` được xoá dòng, và chỉ qua `clear_inbox` (xem dưới).
 - `inbox` (tính năng nhập tay): user gõ từ vào cột A hoặc B, agent soạn đủ cột còn lại rồi
   `vocab import` (`source_type: "term"`, `example_type: "generated"`). Từ mơ hồ thì **hỏi**,
@@ -67,13 +69,21 @@ Deploy → Manage deployments → Edit → **New version**.
   (không có thì trả về `skipped` và giữ dòng), tên tab hard-code nên không đụng được
   `Shuffle`/`Recheck`. Không thêm `delete_many` — lệnh rời vẫn rẻ hơn một op xoá hàng loạt.
 - `read` là op chỉ-đọc duy nhất trả cell thô của **một tab bất kỳ** (không nhận range), để
-  `vocab sheet` đọc bài làm. Không mở đường ghi ra ngoài `terms` — hai ngoại lệ duy nhất là
-  `draw` và `clear_inbox` ở trên, cả hai đều hard-code tên tab.
-- `draw` thay công thức `RANDARRAY` cũ của `Shuffle`: pool giống hệt (`term` khác rỗng,
-  `status <> known`), chọn ngẫu nhiên 1..50 từ (mặc định 10), ghi value vào cột A. Ghi `status`
-  không còn làm cột A xê dịch; bộ từ chỉ đổi khi chạy `draw`.
-- Cột B của `Shuffle`/`Recheck` là bài làm của người dùng: agent đọc, **không ghi**. Chỉ `draw`
-  được xoá cột B của `Shuffle`, và luôn xoá cùng lúc với việc thay bộ từ ở cột A.
-- Lịch ôn dùng `status` + `updated_at` (3/30 ngày nằm trong công thức `Recheck`), không thêm
-  cột SRS trừ khi user yêu cầu.
+  `vocab sheet` đọc bài làm. Không mở đường ghi ra ngoài `terms` — các ngoại lệ duy nhất là
+  `draw`, `recheck` và `clear_inbox` ở trên, cả ba đều hard-code tên tab.
+- `draw` và `recheck` dùng chung một bộ chọn thẻ. Pool: `draw` = `term` khác rỗng và
+  `status <> known` (chiều `en-vi`) / `status_vi <> known` + `meaning_short` khác rỗng (chiều
+  `vi-en`); `recheck` = đến hạn `learning` 3 ngày / `known` 30 ngày tính từ `updated_at`, theo
+  từng chiều. `mixed` chia nửa, thiếu thì bù pool kia; `draw` không lặp `key` giữa hai chiều,
+  `recheck` thì có (một từ đến hạn cả hai chiều = hai thẻ). Prompt `vi-en` là `meaning_short`,
+  khử trùng trong cùng lượt.
+- Thẻ có ba cột ở cả `Shuffle` và `Recheck`: `A` = prompt, `B` = `en-vi | vi-en`, `C` = bài làm
+  của user. Agent đọc, **không ghi** cột C. `draw`/`recheck` xoá `A:C` trước khi ghi bộ mới.
+- `status` = chiều Anh→Việt, `status_vi` = chiều Việt→Anh; cả hai `new|learning|known`, ô trống
+  là `new`. `vocab mark --direction en|vi` ghi đúng trục (mặc định `en`). Thiếu header
+  `status_vi` → lỗi `missing_header`, không ghi hụt.
+- Chấm thẻ `en-vi` bằng `vocab check <prompt>`; chấm thẻ `vi-en` bằng
+  `vocab check --prompt <prompt>` để lấy `term` làm đáp án chuẩn.
+- Lịch ôn dùng trạng thái + `updated_at` chung cho hai chiều (mark chiều này làm mới hạn chiều
+  kia), không thêm cột SRS trừ khi user yêu cầu.
 - Nghĩa/IPA/ví dụ do agent soạn, không bắt user cung cấp — xem skill `vocab-capture`.

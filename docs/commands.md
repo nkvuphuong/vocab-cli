@@ -4,14 +4,17 @@
 vocab import --file rows.json
 vocab import --file - --dry-run
 vocab check "drift" "accuracy floor"
+vocab check --prompt "lệch chất lượng"
 vocab list --status new --domain evals --limit 10
 vocab list --json
 vocab keys --plain
 vocab mark drift --status learning
+vocab mark drift --status known --direction vi
 vocab sheet --name Shuffle
 vocab sheet --name Recheck --json
 vocab draw
-vocab draw --count 20
+vocab draw --count 20 --direction mixed
+vocab recheck
 vocab update --file glosses.json --dry-run
 vocab clear-inbox shovel scarf --confirm
 vocab delete "block a merge" "narrow the gap"
@@ -29,16 +32,22 @@ vocab ping
 - `add` — lưu đúng 1 từ bằng cờ (`--meaning-vi`, `--context`, `--ipa`, …); vẫn dùng được nhưng
   agent dùng `import` là chính.
 - `check` — kiểm tra tồn tại + in nghĩa cũ (nhiều từ một lượt).
+- `check --prompt "<gloss>"` — tra ngược một biến thể `meaning_short` ra `term` (dùng khi chấm
+  thẻ `vi-en`). Nhiều dòng khớp thì trả hết; không khớp → `not_found`, exit 2.
 - `keys --plain` — danh sách key đã lưu, để pre-filter rẻ.
-- `list` — lọc `--status` / `--domain`, `--limit` (mặc định 20), `--json` cho máy đọc.
+- `list` — lọc `--status` / `--domain`, `--limit` (mặc định 20), `--json` cho máy đọc. `--status`
+  vẫn chỉ lọc chiều Anh→Việt (`status`).
 - `update` — sửa field của dòng đã có, theo `key`: mỗi dòng
   `{"term": "...", "<field>": "..."}`, `--dry-run` để xem trước. `import` không cập nhật field
   khi trùng key, nên backfill phải dùng lệnh này.
-- `mark` — đổi trạng thái ôn tập: `new` → `learning` → `known`.
-- `sheet` — đọc tab ôn tập (`Shuffle`/`Recheck`/`inbox`/`glossary`), in `term` + cột B; `--json`
-  cho máy. Chỉ đọc, không ghi gì.
-- `draw` — trộn bộ từ mới vào `Shuffle`: ghi `term` vào cột A dưới dạng **value tĩnh** (xoá
-  `A:B` trước). `--count N` mặc định 10, endpoint chặn 1..50.
+- `mark` — đổi trạng thái ôn tập: `new` → `learning` → `known`. `--direction en|vi` (mặc định
+  `en`) chọn trục: `en` ghi `status`, `vi` ghi `status_vi`.
+- `sheet` — đọc tab ôn tập, chỉ đọc. Với `Shuffle`/`Recheck` trả `prompt` + `direction` (cột B) +
+  `answer` (cột C); với `inbox`/`glossary` trả `term` + `answer` (B) + `note` (C).
+- `draw` — trộn thẻ vào `Shuffle`: ghi `prompt` + chiều vào `A:B` (**value tĩnh**, xoá `A:C`
+  trước). `--direction en|vi|mixed` (mặc định `en`), `--count N` mặc định 10, chặn 1..50.
+- `recheck` — như `draw` nhưng ghi vào `Recheck` và chỉ lấy thẻ đến hạn: `learning` sau 3 ngày,
+  `known` sau 30 ngày, theo từng chiều. Mặc định `--direction mixed`.
 - `delete` — xoá hẳn dòng (không hoàn tác được), `--dry-run` để xem trước. Key không thấy →
   exit 2, không xoá gì.
 - `clear-inbox` — dọn dòng đã xử lý trong `inbox`: bắt buộc `--confirm`; chỉ xoá từ **đã có**

@@ -103,8 +103,9 @@ function makeApi(initialRows, token, extraSheets) {
       deleteRow: (rowIndex) => { values.splice(rowIndex - 1, 1); },
       getRange: (a, b, c, d) => {
         if (typeof a === 'string') {
-          if (a !== 'A:B') throw new Error('fake only implements A:B, got ' + a);
-          return range(1, 1, Math.max(values.length, 1), 2);
+          const m = /^A:([A-Z])$/.exec(a);
+          if (!m) throw new Error('fake only implements A:X ranges, got ' + a);
+          return range(1, 1, Math.max(values.length, 1), m[1].charCodeAt(0) - 64);
         }
         return range(a, b, c, d);
       },
@@ -149,7 +150,7 @@ function post(api, body) {
 const HEADER = ['id', 'key', 'term', 'type', 'cefr', 'pos', 'domain', 'ipa', 'meaning_short',
   'meaning_vi', 'meaning_en', 'example', 'example_type', 'context_note', 'source_type',
   'source_url', 'source_title', 'status', 'lookup_count', 'last_seen_at', 'created_at',
-  'updated_at'];
+  'updated_at', 'status_vi'];
 const HEAD = [HEADER];
 const row = (term, meaning) => ({ term: term, meaning_vi: meaning, context_note: 'a sentence' });
 
@@ -165,6 +166,7 @@ check('appendMany writes all new rows with one batch', () => {
   eq(data.length, 3, 'sheet rows');
   eq(data[1][1], 'drift', 'key col');
   eq(data[1][17], 'new', 'status col');
+  eq(data[1][22], '', 'status_vi col');
 });
 
 check('appendMany dedupes against existing rows and bumps lookup_count', () => {
@@ -308,64 +310,163 @@ check('read defaults to terms and rejects an unknown tab', () => {
   eq(post(api, { token: 'tok', op: 'read', sheet: 'Nope' }).error, 'sheet_not_found');
 });
 
-// n rows of the real header shape, so `draw` sees term + status in the right columns.
-function termRows(n, status) {
+// n rows of the real header shape, so draw/recheck see term/status/gloss in place.
+function termRows(n, status, statusVi) {
   const rows = [HEADER.slice()];
   for (let i = 1; i <= n; i++) {
     const r = new Array(HEADER.length).fill('');
-    r[0] = 'id-' + i; r[1] = 't' + i; r[2] = 't' + i; r[17] = status || 'new';
+    r[0] = 'id-' + i; r[1] = 't' + i; r[2] = 't' + i;
+    r[8] = 'nghĩa ' + i;              // meaning_short
+    r[17] = status || 'new';          // status (en→vi)
+    r[21] = new Date();               // updated_at
+    r[22] = statusVi === undefined ? '' : statusVi;  // status_vi
     rows.push(r);
   }
   return rows;
 }
 
-check('draw writes plain terms into Shuffle A and clears the old answers in B', () => {
-  const shuffle = [['cũ-1', 'đáp án cũ'], ['cũ-2', 'đáp án cũ 2']];
+check('draw writes prompt + direction into A:B and clears the old answers in C', () => {
+  const shuffle = [['cũ-1', 'en-vi', 'đáp án cũ'], ['cũ-2', 'vi-en', 'đáp án cũ 2']];
   const { api } = makeApi(termRows(12), 'tok', { Shuffle: shuffle });
   const res = post(api, { token: 'tok', op: 'draw' });
   eq(res.ok, true, 'ok');
   eq(res.op, 'draw', 'op echoed');
   eq(res.count, 10, 'default count');
   eq(shuffle.length, 10, 'old rows replaced');
-  eq(shuffle.map((r) => r[1] || ''), new Array(10).fill(''), 'column B cleared');
-  eq(new Set(shuffle.map((r) => r[0])).size, 10, 'ten distinct terms');
-  eq(res.terms, shuffle.map((r) => r[0]), 'response matches column A');
+  eq(shuffle.map((r) => r[1]), new Array(10).fill('en-vi'), 'direction in B');
+  eq(shuffle.map((r) => r[2] || ''), new Array(10).fill(''), 'column C cleared');
+  eq(res.items.map((x) => x.prompt), shuffle.map((r) => r[0]), 'response matches column A');
 });
 
-check('draw uses the old formula pool: term non-empty, status not known', () => {
+check('draw en pool: term non-empty, status not known', () => {
   const rows = termRows(6);
   rows[3][17] = 'known';  // t3 learned
   rows[5][2] = '';        // t5 has no term
-  const { api } = makeApi(rows, 'tok', { Shuffle: [['t1', 'đáp án cũ']] });
+  const { api } = makeApi(rows, 'tok', { Shuffle: [['t1', 'en-vi', 'đáp án cũ']] });
   const res = post(api, { token: 'tok', op: 'draw', count: 3 });
   eq(res.count, 3, 'count');
-  eq(res.terms.indexOf('t3'), -1, 'known excluded');
-  eq(res.terms.indexOf('t5'), -1, 'empty term excluded');
-  res.terms.forEach((t) => eq(['t1', 't2', 't4', 't6'].indexOf(t) >= 0, true, 'pool member ' + t));
+  eq(res.items.some((x) => x.prompt === 't3'), false, 'known excluded');
+  eq(res.items.some((x) => x.prompt === 't5'), false, 'empty term excluded');
+  eq(res.items.every((x) => x.direction === 'en-vi'), true, 'en marker');
+});
+
+check('draw vi uses meaning_short and the status_vi pool', () => {
+  const rows = termRows(4);
+  rows[2][22] = 'known';  // t2 learned vi→en
+  rows[3][8] = '';        // t3 has no gloss
+  const { api } = makeApi(rows, 'tok', { Shuffle: [['x', 'vi-en', 'y']] });
+  const res = post(api, { token: 'tok', op: 'draw', direction: 'vi' });
+  eq(res.ok, true, 'ok');
+  eq(res.items.map((x) => x.prompt).sort(), ['nghĩa 1', 'nghĩa 4'], 'gloss prompts');
+  eq(res.items.every((x) => x.direction === 'vi-en'), true, 'vi marker');
+});
+
+check('draw vi skips duplicate glosses', () => {
+  const rows = termRows(4);
+  rows[2][8] = rows[1][8];  // t1 and t2 share one gloss
+  const { api } = makeApi(rows, 'tok', { Shuffle: [['x', 'vi-en', '']] });
+  const res = post(api, { token: 'tok', op: 'draw', direction: 'vi', count: 5 });
+  eq(res.count, 3, 'one card per distinct gloss');
+});
+
+check('draw mixed halves the batch and never repeats a term', () => {
+  const { api } = makeApi(termRows(20), 'tok', { Shuffle: [['x', 'en-vi', '']] });
+  const res = post(api, { token: 'tok', op: 'draw', direction: 'mixed', count: 10 });
+  eq(res.count, 10, 'count');
+  eq(res.items.filter((x) => x.direction === 'en-vi').length, 5, '5 en');
+  eq(res.items.filter((x) => x.direction === 'vi-en').length, 5, '5 vi');
+  const keys = res.items.map((x) => (x.direction === 'en-vi' ? x.prompt : x.prompt.replace('nghĩa ', 't')));
+  eq(new Set(keys).size, 10, 'no term appears in both directions');
+});
+
+check('draw mixed fills a short pool from the other direction', () => {
+  const rows = termRows(10);
+  rows.slice(1).forEach((r, i) => {   // en pool: t3..t10, vi pool: t1, t2
+    if (i < 2) r[17] = 'known'; else r[22] = 'known';
+  });
+  const { api } = makeApi(rows, 'tok', { Shuffle: [['x', 'en-vi', '']] });
+  const res = post(api, { token: 'tok', op: 'draw', direction: 'mixed', count: 10 });
+  eq(res.count, 10, 'full batch');
+  eq(res.items.filter((x) => x.direction === 'vi-en').length, 2, 'all vi candidates used');
+  eq(res.items.filter((x) => x.direction === 'en-vi').length, 8, 'rest from en');
 });
 
 check('draw clamps count to 1..50 and defaults to 10', () => {
-  const { api } = makeApi(termRows(60), 'tok', { Shuffle: [['x', 'y']] });
+  const { api } = makeApi(termRows(60), 'tok', { Shuffle: [['x', 'en-vi', 'y']] });
   eq(post(api, { token: 'tok', op: 'draw', count: 999 }).count, 50, 'clamped to DRAW_MAX');
   eq(post(api, { token: 'tok', op: 'draw', count: 0 }).count, 1, 'floor 1');
   eq(post(api, { token: 'tok', op: 'draw' }).count, 10, 'default');
 });
 
 check('draw never writes when there is nothing to draw or no Shuffle tab', () => {
-  const known = [['cũ', 'đáp án']];
+  const known = [['cũ', 'en-vi', 'đáp án']];
   const { api } = makeApi(termRows(2, 'known'), 'tok', { Shuffle: known });
   eq(post(api, { token: 'tok', op: 'draw' }).error, 'no_candidates');
-  eq(known, [['cũ', 'đáp án']], 'Shuffle untouched');
+  eq(known, [['cũ', 'en-vi', 'đáp án']], 'Shuffle untouched');
 
   const bare = makeApi(termRows(3), 'tok');
   eq(post(bare.api, { token: 'tok', op: 'draw' }).error, 'sheet_not_found');
 });
 
 check('draw is rejected for a wrong token', () => {
-  const shuffle = [['giữ nguyên', 'đáp án']];
+  const shuffle = [['giữ nguyên', 'en-vi', 'đáp án']];
   const { api } = makeApi(termRows(3), 'tok', { Shuffle: shuffle });
   eq(post(api, { token: 'nope', op: 'draw' }).error, 'unauthorized');
-  eq(shuffle, [['giữ nguyên', 'đáp án']], 'nothing written');
+  eq(shuffle, [['giữ nguyên', 'en-vi', 'đáp án']], 'nothing written');
+});
+
+check('recheck picks due cards per direction, and writes nothing when none are due', () => {
+  const daysAgo = (n) => new Date(Date.now() - n * 86400000);
+  const rows = termRows(4);
+  rows[1][17] = 'learning'; rows[1][21] = daysAgo(4);   // t1: en due
+  rows[2][17] = 'known'; rows[2][21] = daysAgo(31);     // t2: en due, vi not started
+  rows[3][17] = 'new'; rows[3][21] = daysAgo(1);        // t3: nothing
+  rows[4][17] = 'learning'; rows[4][21] = daysAgo(10);  // t4: both directions due
+  rows[4][22] = 'learning';
+
+  const { api } = makeApi(rows, 'tok', { Recheck: [['cũ', 'en-vi', 'đáp án']] });
+  const res = post(api, { token: 'tok', op: 'recheck', direction: 'mixed', count: 10 });
+  eq(res.ok, true, 'ok');
+  eq(res.sheet, 'Recheck', 'tab');
+  eq(res.items.map((x) => x.direction).sort(), ['en-vi', 'en-vi', 'en-vi', 'vi-en'], 't1 en, t2 en, t4 en+vi');
+
+  const kept = [['giữ', 'en-vi', 'đáp án']];
+  const empty = makeApi(termRows(2, 'new'), 'tok', { Recheck: kept });
+  eq(post(empty.api, { token: 'tok', op: 'recheck' }).error, 'no_candidates');
+  eq(kept, [['giữ', 'en-vi', 'đáp án']], 'Recheck untouched');
+
+  const bare = makeApi(termRows(3), 'tok');
+  eq(post(bare.api, { token: 'tok', op: 'recheck' }).error, 'sheet_not_found');
+});
+
+check('check prompt resolves a gloss variant to its term', () => {
+  const rows = termRows(3);
+  rows[1][8] = 'lệch chất lượng · trôi lệch';
+  const { api } = makeApi(rows, 'tok');
+  const res = post(api, { token: 'tok', op: 'check', prompt: '  Trôi Lệch. ' });
+  eq(res.ok, true, 'ok');
+  eq(res.matches.length, 1, 'one match');
+  eq(res.matches[0].term, 't1', 'term');
+});
+
+check('check prompt returns every match, or not_found', () => {
+  const rows = termRows(3);
+  rows[1][8] = 'một gloss';
+  rows[2][8] = 'một gloss';
+  const { api } = makeApi(rows, 'tok');
+  eq(post(api, { token: 'tok', op: 'check', prompt: 'một gloss' }).matches.length, 2, 'ambiguous');
+  eq(post(api, { token: 'tok', op: 'check', prompt: 'không có' }).error, 'not_found');
+});
+
+check('update reports missing_header instead of silently skipping status_vi', () => {
+  const rows = [HEADER.slice(0, 22)];
+  const r = new Array(22).fill('');
+  r[0] = 'id-1'; r[1] = 't1'; r[2] = 't1'; r[17] = 'new';
+  rows.push(r);
+  const { api, data } = makeApi(rows, 'tok');
+  const res = post(api, { token: 'tok', op: 'update', key: 't1', patch: { status_vi: 'known' } });
+  eq(res.error, 'missing_header', 'error');
+  eq(data[1][17], 'new', 'status untouched');
 });
 
 check('clear_inbox deletes done rows, keeps the ones not yet saved', () => {

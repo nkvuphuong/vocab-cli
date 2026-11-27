@@ -7,8 +7,9 @@ Bốn việc thường ngày. Cách chính là **nói với agent**, không gõ 
 | "lưu từ vựng từ `<URL/đoạn văn>`" | trích từ → soạn đủ cột → `vocab import` | `vocab-capture` |
 | "lưu `<một từ>`" | hỏi 1 câu chọn nghĩa → `vocab import` | `vocab-capture` |
 | "điền inbox" | đọc tab `inbox` → `vocab check` → `vocab import` → hỏi → `vocab clear-inbox` | `vocab-capture` |
-| "trộn bài" | `vocab draw` → hiện danh sách | `vocab-draw` |
-| "chấm bài" | `vocab sheet` → `vocab check` → chấm theo nghĩa → `vocab mark` | `vocab-grade` |
+| "trộn bài" | `vocab draw` → hiện danh sách thẻ | `vocab-draw` |
+| "ôn lại" / "có gì đến hạn" | `vocab recheck` → hiện danh sách thẻ | `vocab-draw` |
+| "chấm bài" | `vocab sheet` → `vocab check`/`check --prompt` → chấm theo nghĩa → `vocab mark` | `vocab-grade` |
 | "sửa nghĩa của X" | `vocab update --file` | `vocab-capture` |
 
 ## Lưu từ mới
@@ -82,39 +83,46 @@ Quy tắc agent giữ:
 ## Trộn bài
 
 ```
-vocab draw              # 10 từ vào Shuffle!A1:A10
-vocab draw --count 20   # 1..50
+vocab draw              # 10 thẻ mới vào Shuffle, chiều Anh→Việt
+vocab draw --direction mixed --count 20
+vocab recheck           # thẻ đến hạn vào Recheck, mặc định trộn hai chiều
+vocab recheck --direction vi --count 5
 ```
 
-- Ghi **value** vào cột A (không công thức), xoá `A:B` trước khi ghi → đáp án cũ mất. Chỉ chạy
-  khi bạn yêu cầu, đừng chạy giữa buổi chấm.
-- Pool: `term` khác rỗng, `status <> known`.
-- Lần đầu trên Sheet còn công thức `RANDARRAY` ở A1: lệnh này xoá luôn công thức đó.
-- Chi tiết tab: [sheet.md](sheet.md#tab-shuffle--không-dùng-công-thức).
+- Mỗi thẻ là `A = prompt`, `B = en-vi | vi-en`, `C = bài làm`. Đọc `B` để biết phải viết tiếng
+  Anh hay tiếng Việt.
+- Ghi **value** (không công thức) và xoá `A:C` trước khi ghi → bộ thẻ cũ và đáp án cũ mất. Chỉ
+  chạy khi bạn yêu cầu, đừng chạy giữa buổi chấm.
+- `draw` lấy pool chưa thuộc: `status` (và `status_vi`) khác `known`; thẻ `vi-en` dùng
+  `meaning_short` làm prompt. `recheck` lấy pool đến hạn: 3 ngày cho `learning`, 30 ngày cho
+  `known`, theo từng chiều.
+- `--direction` mặc định `en` cho `draw`, `mixed` cho `recheck`; `--count` 1..50.
+- Chi tiết tab: [sheet.md](sheet.md#hai-tab-thẻ-shuffle-và-recheck).
 
 ## Chấm bài
 
-Bạn nhớ nghĩa rồi gõ tiếng Việt vào **cột B** của `Shuffle` (hoặc `Recheck`), sau đó nhờ agent
-chấm. Không có đáp án nào khớp máy móc, nên việc chấm là của LLM: nó chấp nhận đồng nghĩa, diễn
-giải, và lỗi chính tả không gây nhầm nghĩa.
+Bạn gõ câu trả lời vào **cột C** của `Shuffle` (hoặc `Recheck`), sau đó nhờ agent chấm. Chiều
+của từng thẻ nằm ở cột B: `en-vi` trả lời bằng tiếng Việt, `vi-en` trả lời bằng tiếng Anh. Không
+có đáp án nào khớp máy móc, nên việc chấm là của LLM: nó chấp nhận đồng nghĩa, diễn giải, và lỗi
+chính tả không gây nhầm nghĩa.
 
 ```
 bạn:   chấm bài giúp tôi
-agent: vocab sheet → vocab check → chấm theo nghĩa → vocab mark → bảng kết quả
+agent: vocab sheet → vocab check (en-vi) / check --prompt (vi-en) → chấm → vocab mark --direction → bảng
 ```
 
 | Lệnh | Việc |
 |---|---|
-| `vocab sheet --name Shuffle` | đọc cặp (term, đáp án) ở cột A/B của tab |
-| `vocab check "drift" …` | lấy `meaning_short`/`meaning_vi` làm đáp án chuẩn |
-| `vocab mark "drift" --status known` | đạt → `known`, không đạt → `learning` |
+| `vocab sheet --name Shuffle` | đọc `prompt` + `chiều` (B) + `bài làm` (C) |
+| `vocab check "drift" …` | lấy `meaning_short`/`meaning_vi` làm đáp án chuẩn cho thẻ `en-vi` |
+| `vocab check --prompt "lệch chất lượng"` | tra ngược gloss → `term`, đáp án chuẩn cho thẻ `vi-en` |
+| `vocab mark "drift" --status known` | đạt thẻ `en-vi` → `known` |
+| `vocab mark "drift" --status known --direction vi` | đạt thẻ `vi-en` → `status_vi = known` |
 
 Rubric đầy đủ nằm trong skill `.opencode/skills/vocab-grade/SKILL.md`.
 
-**Ôn lại sau khi đã đúng:** `known` không phải vĩnh viễn. Tab `Recheck` hiện lại từ `learning`
-sau 3 ngày và `known` sau 30 ngày; quên ở đó thì nó về `learning` và xuất hiện ngay trong
-`Shuffle`.
+**Ôn lại sau khi đã đúng:** `known` không phải vĩnh viễn. `learning` quay lại sau 3 ngày, `known`
+sau 30 ngày, tính riêng cho từng chiều — `vocab recheck` gom cả hai chiều vào tab `Recheck`.
 
-**Cảnh báo:** ghi `status` làm `Recheck` tính lại (`TODAY`), nên cột B lệch hàng so với term
-ngay sau khi chấm. Agent đọc A+B trước khi ghi; bạn xoá cột B sau mỗi buổi, và `vocab draw`
-lần sau cũng tự xoá. `Shuffle` không còn vấn đề này vì cột A là value, không phải `FILTER`.
+**Cảnh báo:** `updated_at` dùng chung cho hai chiều, nên chấm một chiều cũng làm mới hạn ôn của
+chiều kia. Cột C là bài làm của bạn: xoá sau mỗi buổi, và `draw`/`recheck` lần sau cũng tự xoá.
